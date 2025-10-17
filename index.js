@@ -1,7 +1,8 @@
-import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } from "discord.js";
-import express from "express";
-import fs from "fs";
 import dotenv from "dotenv";
+dotenv.config();
+
+import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from "discord.js";
+import express from "express";
 
 dotenv.config();
 
