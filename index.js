@@ -1,13 +1,13 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import fs from "fs"; // ✅ เพิ่มบรรทัดนี้
+import fs from "fs";
 import { 
   Client, 
   GatewayIntentBits, 
   REST, 
   Routes, 
-  SlashCommandBuilder, // ✅ ต้อง import
+  SlashCommandBuilder,
   EmbedBuilder, 
   ButtonBuilder, 
   ButtonStyle, 
@@ -15,11 +15,13 @@ import {
 } from "discord.js";
 import express from "express";
 import cors from "cors";
+
+// 🌐 สร้าง Express app ก่อน แล้วค่อยใช้งาน cors
+const app = express();
 app.use(cors());
+app.use(express.json());
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-const app = express();
-app.use(express.json());
 
 const CONFIG_FILE = "./config.json";
 const DEFAULT_URL = "https://roleplayfrom.vercel.app/";
@@ -63,7 +65,7 @@ const commands = [
           opt.setName("url").setDescription("ลิงก์ฟอร์ม (ถ้าไม่ใส่จะใช้ค่า default)")
         )
     )
-    .toJSON(), // ✅ แปลงเป็น JSON สำหรับ REST API
+    .toJSON(),
 ];
 
 const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
@@ -77,7 +79,7 @@ const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
   }
 })();
 
-// 🎯 การทำงานของคำสั่ง /set
+// การทำงานของคำสั่ง /set
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   const { commandName, options } = interaction;
