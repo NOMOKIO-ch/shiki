@@ -2,7 +2,17 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import fs from "fs"; // ✅ เพิ่มบรรทัดนี้
-import { Client, GatewayIntentBits } from "discord.js";
+import { 
+  Client, 
+  GatewayIntentBits, 
+  REST, 
+  Routes, 
+  SlashCommandBuilder, // ✅ ต้อง import
+  EmbedBuilder, 
+  ButtonBuilder, 
+  ButtonStyle, 
+  ActionRowBuilder 
+} from "discord.js";
 import express from "express";
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -50,7 +60,8 @@ const commands = [
         .addStringOption(opt =>
           opt.setName("url").setDescription("ลิงก์ฟอร์ม (ถ้าไม่ใส่จะใช้ค่า default)")
         )
-    ),
+    )
+    .toJSON(), // ✅ แปลงเป็น JSON สำหรับ REST API
 ];
 
 const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
@@ -70,7 +81,7 @@ client.on("interactionCreate", async (interaction) => {
   const { commandName, options } = interaction;
 
   if (commandName === "set") {
-    const sub = interaction.options.getSubcommand();
+    const sub = options.getSubcommand();
 
     if (sub === "private-channel") {
       const channel = options.getChannel("channel");
@@ -124,14 +135,14 @@ app.post("/submit", async (req, res) => {
       .setTitle("📝 ข้อมูลการลงทะเบียนตัวละครใหม่")
       .setColor("Purple")
       .addFields(
-        { name: "ชื่อ OC", value: data.oc_name },
-        { name: "อายุ OC", value: data.oc_age },
-        { name: "ชื่อ IC", value: data.ic_name },
-        { name: "อายุ IC", value: data.ic_age },
-        { name: "ส่วนสูง IC", value: data.ic_height },
-        { name: "สายพันธุ์", value: data.species },
-        { name: "Discord", value: data.discord_user },
-        { name: "ประวัติ IC", value: data.ic_history }
+        { name: "ชื่อ OC", value: data.oc_name || "ไม่ระบุ", inline: true },
+        { name: "อายุ OC", value: data.oc_age || "ไม่ระบุ", inline: true },
+        { name: "ชื่อ IC", value: data.ic_name || "ไม่ระบุ", inline: true },
+        { name: "อายุ IC", value: data.ic_age || "ไม่ระบุ", inline: true },
+        { name: "ส่วนสูง IC", value: data.ic_height || "ไม่ระบุ", inline: true },
+        { name: "สายพันธุ์", value: data.species || "ไม่ระบุ", inline: true },
+        { name: "Discord", value: data.discord_user || "ไม่ระบุ", inline: true },
+        { name: "ประวัติ IC", value: data.ic_history || "ไม่ระบุ" }
       )
       .setTimestamp();
 
