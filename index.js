@@ -14,6 +14,8 @@ import {
   ActionRowBuilder 
 } from "discord.js";
 import express from "express";
+import cors from "cors";
+app.use(cors());
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const app = express();
