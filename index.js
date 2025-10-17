@@ -1,10 +1,9 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from "discord.js";
+import fs from "fs"; // ✅ เพิ่มบรรทัดนี้
+import { Client, GatewayIntentBits } from "discord.js";
 import express from "express";
-
-dotenv.config();
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const app = express();
