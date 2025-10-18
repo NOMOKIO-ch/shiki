@@ -67,12 +67,6 @@ const commands = [
     .toJSON(),
 
   new SlashCommandBuilder()
-    .setName("serverid")
-    .setDescription("ตั้ง Server ID ของบอท")
-    .addStringOption(opt => opt.setName("server_id").setDescription("Server ID").setRequired(true))
-    .toJSON(),
-
-  new SlashCommandBuilder()
     .setName("setrole")
     .setDescription("ตั้ง role ที่จะให้หลังกรอกฟอร์ม")
     .addStringOption(opt => opt.setName("role_name").setDescription("ชื่อ role").setRequired(true))
@@ -100,7 +94,7 @@ client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   const { commandName, options, guildId } = interaction;
 
-  if (!config[guildId]) config[guildId] = { privateChannel: null, roleToGive: null, embedImage: null, embedColor: "#FFD700", serverID: guildId };
+  if (!config[guildId]) config[guildId] = { privateChannel: null, roleToGive: null, embedImage: null, embedColor: "#FFD700" };
 
   try {
     // /setchanel
@@ -138,14 +132,6 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.reply({ content: `✅ ส่งข้อความประกาศเรียบร้อยที่ ${channel}`, ephemeral: true });
     }
 
-    // /serverid
-    if (commandName === "serverid") {
-      const server_id = options.getString("server_id");
-      config[guildId].serverID = server_id;
-      saveConfig();
-      await interaction.reply({ content: `✅ ตั้ง Server ID เป็น: ${server_id}`, ephemeral: true });
-    }
-
     // /setrole
     if (commandName === "setrole") {
       const roleName = options.getString("role_name");
@@ -156,7 +142,7 @@ client.on("interactionCreate", async (interaction) => {
 
     // /clearsetting
     if (commandName === "clearsetting") {
-      config[guildId] = { privateChannel: null, roleToGive: null, embedImage: null, embedColor: "#FFD700", serverID: guildId };
+      config[guildId] = { privateChannel: null, roleToGive: null, embedImage: null, embedColor: "#FFD700" };
       saveConfig();
       await interaction.reply({ content: "🧹 ล้างค่าการตั้งค่าของ server นี้เรียบร้อย!", ephemeral: true });
     }
@@ -170,59 +156,56 @@ client.on("interactionCreate", async (interaction) => {
 app.post("/submit", async (req, res) => {
   try {
     const data = req.body;
-    const guildId = data.server_id;
-    if (!guildId || !config[guildId] || !config[guildId].privateChannel) return res.status(400).send("ยังไม่ได้ตั้งค่าช่องสรุปหรือ server_id!");
 
-    const channel = await client.channels.fetch(config[guildId].privateChannel);
-    if (!channel) return res.status(404).send("ไม่พบช่อง!");
+    // หาทุก server ที่ตั้ง channel
+    const guilds = Object.keys(config).filter(gid => config[gid].privateChannel);
+    if (!guilds.length) return res.status(400).send("❌ ยังไม่ได้ตั้งค่าช่องสรุปใน server ใดเลย");
 
-    // 📝 embed สรุปข้อมูล
-    const embed = new EmbedBuilder()
-      .setTitle("📝 ข้อมูลการลงทะเบียนตัวละครใหม่")
-      .setColor(config[guildId].embedColor || "#A020F0")
-      .addFields(
-        { name: "ชื่อ OC", value: data.oc_name || "ไม่ระบุ", inline: true },
-        { name: "อายุ OC", value: data.oc_age || "ไม่ระบุ", inline: true },
-        { name: "ชื่อ IC", value: data.ic_name || "ไม่ระบุ", inline: true },
-        { name: "อายุ IC", value: data.ic_age || "ไม่ระบุ", inline: true },
-        { name: "ส่วนสูง IC", value: data.ic_height || "ไม่ระบุ", inline: true },
-        { name: "สายพันธุ์", value: data.species || "ไม่ระบุ", inline: true },
-        { name: "Discord", value: data.discord_user || "ไม่ระบุ", inline: true },
-        { name: "ประวัติ IC", value: data.ic_history || "ไม่ระบุ" }
-      )
-      .setTimestamp();
+    for (const guildId of guilds) {
+      const channel = await client.channels.fetch(config[guildId].privateChannel).catch(e => null);
+      if (!channel) continue;
 
-    if (config[guildId].embedImage) embed.setImage(config[guildId].embedImage);
-    await channel.send({ embeds: [embed] });
+      const embed = new EmbedBuilder()
+        .setTitle("📝 ข้อมูลการลงทะเบียนตัวละครใหม่")
+        .setColor(config[guildId].embedColor || "#A020F0")
+        .addFields(
+          { name: "ชื่อ OC", value: data.oc_name || "ไม่ระบุ", inline: true },
+          { name: "อายุ OC", value: data.oc_age || "ไม่ระบุ", inline: true },
+          { name: "ชื่อ IC", value: data.ic_name || "ไม่ระบุ", inline: true },
+          { name: "อายุ IC", value: data.ic_age || "ไม่ระบุ", inline: true },
+          { name: "ส่วนสูง IC", value: data.ic_height || "ไม่ระบุ", inline: true },
+          { name: "สายพันธุ์", value: data.species || "ไม่ระบุ", inline: true },
+          { name: "Discord", value: data.discord_user || "ไม่ระบุ", inline: true },
+          { name: "ประวัติ IC", value: data.ic_history || "ไม่ระบุ" }
+        )
+        .setTimestamp();
 
-    // 🎖️ ให้ role อัตโนมัติ
-    if (config[guildId].roleToGive && (data.discord_user || data.discord_id)) {
-      const guild = channel.guild;
-      await guild.members.fetch();
+      if (config[guildId].embedImage) embed.setImage(config[guildId].embedImage);
 
-      let member = null;
+      await channel.send({ embeds: [embed] }).catch(e => console.error("❌ ไม่สามารถส่ง embed:", e));
 
-      if (data.discord_id) member = guild.members.cache.get(data.discord_id);
-      if (!member && data.discord_user) {
-        member = guild.members.cache.find(m =>
+      // ให้ role อัตโนมัติ
+      if (config[guildId].roleToGive && data.discord_user) {
+        const guild = channel.guild;
+        await guild.members.fetch();
+        const member = guild.members.cache.find(m =>
           m.user.tag.toLowerCase() === data.discord_user.toLowerCase() ||
           m.user.username.toLowerCase() === data.discord_user.toLowerCase()
         );
-      }
-
-      if (member) {
-        const role = guild.roles.cache.find(r => r.name === config[guildId].roleToGive);
-        if (role && !member.roles.cache.has(role.id)) {
-          await member.roles.add(role);
-          console.log(`🎖️ ให้ role ${role.name} แก่ ${member.user.tag}`);
-        }
+        if (member) {
+          const role = guild.roles.cache.find(r => r.name === config[guildId].roleToGive);
+          if (role && !member.roles.cache.has(role.id)) {
+            await member.roles.add(role).catch(e => console.error("❌ ไม่สามารถมอบ role:", e));
+            console.log(`🎖️ ให้ role ${role.name} แก่ ${member.user.tag}`);
+          }
+        } else console.log(`⚠️ ไม่พบผู้ใช้ ${data.discord_user}`);
       }
     }
 
     res.send({ status: "ok" });
   } catch (err) {
     console.error("❌ Error /submit:", err);
-    res.status(500).send({ status: "error" });
+    res.status(500).send({ status: "error", error: err.message });
   }
 });
 
