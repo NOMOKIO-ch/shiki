@@ -22,7 +22,9 @@ app.use(cors());
 app.use(express.json());
 
 // 🤖 Discord Client
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+});
 
 // 📂 Config File
 const CONFIG_FILE = "./config.json";
@@ -115,7 +117,10 @@ client.on("interactionCreate", async (interaction) => {
       const imageUrl = options.getString("image");
       const color = options.getString("color") || "#FFD700";
 
-      const embed = new EmbedBuilder().setTitle("📋 ลงทะเบียนตัวละคร").setDescription(messageText).setColor(color);
+      const embed = new EmbedBuilder()
+        .setTitle("📋 ลงทะเบียนตัวละคร")
+        .setDescription(messageText)
+        .setColor(color);
       if (imageUrl) embed.setImage(imageUrl);
 
       const button = new ActionRowBuilder().addComponents(
@@ -160,6 +165,7 @@ app.post("/submit", async (req, res) => {
     const channel = await client.channels.fetch(config.privateChannel);
     if (!channel) return res.status(404).send("ไม่พบช่อง!");
 
+    // 📝 สร้าง embed สรุปข้อมูล
     const embed = new EmbedBuilder()
       .setTitle("📝 ข้อมูลการลงทะเบียนตัวละครใหม่")
       .setColor(config.embedColor || "#A020F0")
@@ -176,19 +182,42 @@ app.post("/submit", async (req, res) => {
       .setTimestamp();
 
     if (config.embedImage) embed.setImage(config.embedImage);
-
     await channel.send({ embeds: [embed] });
 
-    // ให้ยศอัตโนมัติ
-    if (config.roleToGive && data.discord_user) {
+    // 🎖️ ให้ยศอัตโนมัติ
+    if (config.roleToGive && (data.discord_user || data.discord_id)) {
       const guild = channel.guild;
-      await guild.members.fetch(); // fetch all members for cache
-      const member = guild.members.cache.find(m => m.user.tag.toLowerCase() === data.discord_user.toLowerCase());
+      await guild.members.fetch();
+
+      let member = null;
+
+      // ✅ ถ้ามี discord_id จากฟอร์ม ใช้ ID ก่อน
+      if (data.discord_id) {
+        member = guild.members.cache.get(data.discord_id);
+      }
+
+      // 🔍 ถ้าไม่มี ID ให้ลองค้นจากชื่อ Discord
+      if (!member && data.discord_user) {
+        member = guild.members.cache.find(m =>
+          m.user.tag.toLowerCase() === data.discord_user.toLowerCase() ||
+          m.user.username.toLowerCase() === data.discord_user.toLowerCase()
+        );
+      }
+
       if (member) {
-        await member.roles.add(config.roleToGive).catch(console.error);
-        console.log(`🎖️ ให้ยศ ${config.roleToGive} แก่ ${member.user.tag}`);
+        const role = guild.roles.cache.get(config.roleToGive);
+        if (role) {
+          if (member.roles.cache.has(role.id)) {
+            console.log(`ℹ️ ผู้ใช้ ${member.user.tag} มี role นี้อยู่แล้ว`);
+          } else {
+            await member.roles.add(role);
+            console.log(`🎖️ ให้ยศ ${role.name} แก่ ${member.user.tag}`);
+          }
+        } else {
+          console.log("⚠️ ไม่พบ role ที่ตั้งไว้ใน config");
+        }
       } else {
-        console.log(`⚠️ ไม่พบผู้ใช้ ${data.discord_user} ใน guild`);
+        console.log(`⚠️ ไม่พบผู้ใช้ ${data.discord_user || data.discord_id} ใน guild`);
       }
     }
 
