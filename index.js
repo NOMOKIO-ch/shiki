@@ -11,7 +11,7 @@ import {
   EmbedBuilder,
   ButtonBuilder,
   ButtonStyle,
-  ActionRowBuilder
+  ActionRowBuilder,
 } from "discord.js";
 import express from "express";
 import cors from "cors";
@@ -23,7 +23,7 @@ app.use(express.json());
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 
 const CONFIG_FILE = "./config.json";
-const DEFAULT_URL = "https://roleplayfrom.vercel.app/";
+const DEFAULT_URL = "https://yourform.com"; // เปลี่ยนเป็น URL ฟอร์มของคุณ
 
 let config = fs.existsSync(CONFIG_FILE)
   ? JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"))
@@ -53,7 +53,6 @@ const commands = [
     .setName("setannounce")
     .setDescription("ตั้งข้อความประกาศฟอร์ม")
     .addStringOption(opt => opt.setName("message").setDescription("ข้อความประกาศ").setRequired(true))
-    .addStringOption(opt => opt.setName("url").setDescription("ลิงก์ฟอร์ม (default ใช้ค่าเดิม)"))
     .addStringOption(opt => opt.setName("image").setDescription("ลิงก์รูป/ GIF"))
     .addStringOption(opt => opt.setName("color").setDescription("สี embed เช่น #FFD700")),
 
@@ -91,13 +90,12 @@ const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
 // จัดการคำสั่ง
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
-  const { commandName, options, guildId } = interaction;
+  const { commandName, options, guildId, user } = interaction;
 
   if (!config[guildId])
     config[guildId] = { privateChannel: null, roleToGive: null, announceMessage: null, summaryMessage: null, embedImage: null, embedColor: "#FFD700" };
 
   try {
-    // setchanel
     if (commandName === "setchanel") {
       const channel = options.getChannel("channel");
       config[guildId].privateChannel = channel.id;
@@ -105,7 +103,6 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ content: `✅ ตั้งค่าช่องสรุปเป็น ${channel}`, ephemeral: true });
     }
 
-    // setannounce
     if (commandName === "setannounce") {
       config[guildId].announceMessage = options.getString("message");
       config[guildId].embedImage = options.getString("image");
@@ -114,26 +111,23 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ content: `✅ ตั้งประกาศฟอร์มเรียบร้อย`, ephemeral: true });
     }
 
-    // setsummary
     if (commandName === "setsummary") {
       config[guildId].summaryMessage = options.getString("message");
       saveConfig();
       return interaction.reply({ content: `✅ ตั้ง template สรุปเรียบร้อย`, ephemeral: true });
     }
 
-    // setrole
     if (commandName === "setrole") {
       const role = options.getRole("role");
       config[guildId].roleToGive = role.id;
       saveConfig();
-      return interaction.reply({ content: `✅ ตั้ง role หลังกรอกฟอร์ม: ${role.name}`, ephemeral: true });
+      return interaction.reply({ content: `✅ ตั้ง role ที่จะมอบหลังกรอกฟอร์มเป็น: ${role.name}`, ephemeral: true });
     }
 
-    // preview
     if (commandName === "preview") {
       const guildConfig = config[guildId];
       const dummy = { OC:"Luna", OC_AGE:"17", IC:"Shiki", IC_AGE:"25", HEIGHT:"175cm", SPECIES:"Furry Fox", DISCORD:"Shiki#1234", HISTORY:"นักผจญภัย"};
-
+      
       const announceEmbed = new EmbedBuilder()
         .setTitle("📢 ตัวอย่างประกาศ")
         .setDescription(guildConfig.announceMessage || "กรอกฟอร์มเพื่อสมัครตัวละคร")
@@ -141,7 +135,10 @@ client.on("interactionCreate", async (interaction) => {
       if (guildConfig.embedImage) announceEmbed.setImage(guildConfig.embedImage);
 
       const button = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setLabel("🔗 ตัวอย่างฟอร์ม").setStyle(ButtonStyle.Link).setURL(DEFAULT_URL)
+        new ButtonBuilder()
+          .setLabel("🔗 ตัวอย่างฟอร์ม")
+          .setStyle(ButtonStyle.Link)
+          .setURL(`${DEFAULT_URL}?discord_id=${user.id}`)
       );
 
       await interaction.reply({ embeds: [announceEmbed], components: [button] });
@@ -158,7 +155,6 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.followUp({ embeds:[summaryEmbed] });
     }
 
-    // clearsetting
     if (commandName === "clearsetting") {
       config[guildId] = { privateChannel:null, roleToGive:null, announceMessage:null, summaryMessage:null, embedImage:null, embedColor:"#FFD700" };
       saveConfig();
@@ -175,11 +171,10 @@ client.on("interactionCreate", async (interaction) => {
 app.post("/submit", async (req,res)=>{
   try{
     const data = req.body;
-    const guildId = data.guild_id;
-    if(!guildId || !config[guildId]) 
-      return res.status(400).send("❌ ไม่พบเซิร์ฟเวอร์นี้");
+    const targetGuildId = Object.keys(config)[0];
+    if(!targetGuildId) return res.status(400).send("❌ ไม่พบเซิร์ฟเวอร์");
 
-    const guildConfig = config[guildId];
+    const guildConfig = config[targetGuildId];
     const channel = await client.channels.fetch(guildConfig.privateChannel).catch(()=>null);
     if(!channel) return res.status(404).send("❌ ไม่พบช่อง");
 
@@ -196,9 +191,9 @@ app.post("/submit", async (req,res)=>{
 
     await channel.send({ embeds:[summaryEmbed] });
 
-    // มอบ Role
+    // มอบ Role อัตโนมัติ
     if(guildConfig.roleToGive && data.discord_id){
-      const guild = await client.guilds.fetch(guildId);
+      const guild = await client.guilds.fetch(targetGuildId);
       await guild.members.fetch();
       const member = guild.members.cache.get(data.discord_id);
       if(member){
