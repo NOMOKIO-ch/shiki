@@ -28,6 +28,7 @@ const client = new Client({
 
 const CONFIG_FILE = "./config.json";
 const DEFAULT_URL = "https://roleplayfrom.vercel.app/";
+
 let config = fs.existsSync(CONFIG_FILE)
   ? JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"))
   : {};
@@ -47,7 +48,7 @@ client
   .then(() => console.log("✅ บอท login สำเร็จ"))
   .catch((err) => console.error("❌ บอท login ไม่สำเร็จ:", err));
 
-// 🔹 คำสั่งทั้งหมด
+// 🔹 คำสั่งทั้งหมด (หลังลบ serverID)
 const commands = [
   new SlashCommandBuilder()
     .setName("setchanel")
@@ -83,22 +84,11 @@ const commands = [
     ),
 
   new SlashCommandBuilder()
-    .setName("setserverid")
-    .setDescription("ตั้ง Server ID สำหรับเชื่อมกับเว็บไซต์")
-    .addStringOption(opt =>
-      opt.setName("id").setDescription("Server ID ของเซิร์ฟนี้").setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("serverid")
-    .setDescription("ดู Server ID (แอดมินเท่านั้น)"),
-
-  new SlashCommandBuilder()
     .setName("clearsetting")
     .setDescription("ล้างค่าการตั้งค่าของ server นี้"),
 ].map(cmd => cmd.toJSON());
 
-// ลงทะเบียนคำสั่ง
+// 🔹 ลงทะเบียนคำสั่ง
 const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
 (async () => {
   try {
@@ -113,10 +103,10 @@ const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
 // 🔹 จัดการคำสั่ง
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
-  const { commandName, options, guildId, guild } = interaction;
+  const { commandName, options, guildId } = interaction;
 
   if (!config[guildId])
-    config[guildId] = { privateChannel: null, roleToGive: null, embedImage: null, embedColor: "#FFD700", linkedServerId: null };
+    config[guildId] = { privateChannel: null, roleToGive: null, embedImage: null, embedColor: "#FFD700" };
 
   try {
     // setchanel
@@ -165,31 +155,9 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.reply({ content: `✅ ตั้ง role ที่จะมอบหลังกรอกฟอร์มเป็น: ${roleName}`, ephemeral: true });
     }
 
-    // setserverid
-    if (commandName === "setserverid") {
-      if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
-        return interaction.reply({ content: "❌ ต้องเป็นแอดมินเท่านั้น!", ephemeral: true });
-
-      const id = options.getString("id");
-      config[guildId].linkedServerId = id;
-      saveConfig();
-      await interaction.reply({ content: `✅ เซ็ต Server ID สำหรับเชื่อมเว็บเป็น: \`${id}\``, ephemeral: true });
-    }
-
-    // serverid
-    if (commandName === "serverid") {
-      if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
-        return interaction.reply({ content: "❌ คำสั่งนี้ใช้ได้เฉพาะแอดมิน!", ephemeral: true });
-
-      await interaction.reply({
-        content: `🆔 Server ID ของเซิร์ฟนี้คือ: \`${guildId}\``,
-        ephemeral: true,
-      });
-    }
-
     // clearsetting
     if (commandName === "clearsetting") {
-      config[guildId] = { privateChannel: null, roleToGive: null, embedImage: null, embedColor: "#FFD700", linkedServerId: null };
+      config[guildId] = { privateChannel: null, roleToGive: null, embedImage: null, embedColor: "#FFD700" };
       saveConfig();
       await interaction.reply({ content: "🧹 ล้างค่าการตั้งค่าของ server นี้เรียบร้อย!", ephemeral: true });
     }
@@ -203,14 +171,10 @@ client.on("interactionCreate", async (interaction) => {
 app.post("/submit", async (req, res) => {
   try {
     const data = req.body;
-    const serverId = data.server_id; // ต้องส่งจากฟอร์ม
-    if (!serverId) return res.status(400).send("❌ ไม่มี server_id ในข้อมูล");
+    const guildId = Object.keys(config)[0]; // ใช้เซิร์ฟเวอร์แรกถ้าไม่มี serverID
+    if (!guildId) return res.status(400).send("❌ ไม่พบเซิร์ฟเวอร์");
 
-    // หา server ที่ linkedServerId ตรงกับ server_id ที่ส่งมา
-    const targetGuildId = Object.keys(config).find(gid => config[gid].linkedServerId === serverId);
-    if (!targetGuildId) return res.status(404).send("❌ ไม่พบเซิร์ฟเวอร์ที่เชื่อมกับ Server ID นี้");
-
-    const channelId = config[targetGuildId].privateChannel;
+    const channelId = config[guildId].privateChannel;
     if (!channelId) return res.status(400).send("❌ ยังไม่ได้ตั้งค่าช่องสรุป");
 
     const channel = await client.channels.fetch(channelId).catch(() => null);
@@ -218,7 +182,7 @@ app.post("/submit", async (req, res) => {
 
     const embed = new EmbedBuilder()
       .setTitle("📝 ข้อมูลการลงทะเบียนตัวละครใหม่")
-      .setColor(config[targetGuildId].embedColor || "#A020F0")
+      .setColor(config[guildId].embedColor || "#A020F0")
       .addFields(
         { name: "ชื่อ OC", value: data.oc_name || "ไม่ระบุ", inline: true },
         { name: "อายุ OC", value: data.oc_age || "ไม่ระบุ", inline: true },
@@ -231,7 +195,7 @@ app.post("/submit", async (req, res) => {
       )
       .setTimestamp();
 
-    if (config[targetGuildId].embedImage) embed.setImage(config[targetGuildId].embedImage);
+    if (config[guildId].embedImage) embed.setImage(config[guildId].embedImage);
 
     await channel.send({ embeds: [embed] });
 
