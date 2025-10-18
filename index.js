@@ -23,7 +23,7 @@ app.use(express.json());
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 
 const CONFIG_FILE = "./config.json";
-const DEFAULT_URL = "https://yourform.com"; // เปลี่ยนเป็น URL ฟอร์มของคุณ
+const DEFAULT_URL = "https://roleplayfrom.vercel.app/"; // เปลี่ยนเป็น URL ฟอร์มของคุณ
 
 let config = fs.existsSync(CONFIG_FILE)
   ? JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"))
