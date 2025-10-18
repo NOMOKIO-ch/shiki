@@ -48,7 +48,7 @@ client
   .then(() => console.log("✅ บอท login สำเร็จ"))
   .catch((err) => console.error("❌ บอท login ไม่สำเร็จ:", err));
 
-// 🔹 คำสั่งทั้งหมด (หลังลบ serverID)
+// 🔹 คำสั่งทั้งหมด
 const commands = [
   new SlashCommandBuilder()
     .setName("setchanel")
@@ -79,8 +79,10 @@ const commands = [
   new SlashCommandBuilder()
     .setName("setrole")
     .setDescription("ตั้ง role ที่จะให้หลังกรอกฟอร์ม")
-    .addStringOption(opt =>
-      opt.setName("role_name").setDescription("ชื่อ role").setRequired(true)
+    .addRoleOption(opt =>
+      opt.setName("role")
+         .setDescription("เลือก role ที่จะมอบ")
+         .setRequired(true)
     ),
 
   new SlashCommandBuilder()
@@ -149,10 +151,10 @@ client.on("interactionCreate", async (interaction) => {
 
     // setrole
     if (commandName === "setrole") {
-      const roleName = options.getString("role_name");
-      config[guildId].roleToGive = roleName;
+      const role = options.getRole("role");
+      config[guildId].roleToGive = role.id; // บันทึกเป็น ID
       saveConfig();
-      await interaction.reply({ content: `✅ ตั้ง role ที่จะมอบหลังกรอกฟอร์มเป็น: ${roleName}`, ephemeral: true });
+      await interaction.reply({ content: `✅ ตั้ง role ที่จะมอบหลังกรอกฟอร์มเป็น: ${role.name}`, ephemeral: true });
     }
 
     // clearsetting
@@ -171,10 +173,10 @@ client.on("interactionCreate", async (interaction) => {
 app.post("/submit", async (req, res) => {
   try {
     const data = req.body;
-    const guildId = Object.keys(config)[0]; // ใช้เซิร์ฟเวอร์แรกถ้าไม่มี serverID
-    if (!guildId) return res.status(400).send("❌ ไม่พบเซิร์ฟเวอร์");
+    const targetGuildId = Object.keys(config)[0]; // ใช้เซิร์ฟเวอร์แรก
+    if (!targetGuildId) return res.status(400).send("❌ ไม่พบเซิร์ฟเวอร์");
 
-    const channelId = config[guildId].privateChannel;
+    const channelId = config[targetGuildId].privateChannel;
     if (!channelId) return res.status(400).send("❌ ยังไม่ได้ตั้งค่าช่องสรุป");
 
     const channel = await client.channels.fetch(channelId).catch(() => null);
@@ -182,7 +184,7 @@ app.post("/submit", async (req, res) => {
 
     const embed = new EmbedBuilder()
       .setTitle("📝 ข้อมูลการลงทะเบียนตัวละครใหม่")
-      .setColor(config[guildId].embedColor || "#A020F0")
+      .setColor(config[targetGuildId].embedColor || "#A020F0")
       .addFields(
         { name: "ชื่อ OC", value: data.oc_name || "ไม่ระบุ", inline: true },
         { name: "อายุ OC", value: data.oc_age || "ไม่ระบุ", inline: true },
@@ -195,9 +197,24 @@ app.post("/submit", async (req, res) => {
       )
       .setTimestamp();
 
-    if (config[guildId].embedImage) embed.setImage(config[guildId].embedImage);
+    if (config[targetGuildId].embedImage) embed.setImage(config[targetGuildId].embedImage);
 
     await channel.send({ embeds: [embed] });
+
+    // 🎖️ มอบ role อัตโนมัติ
+    if (config[targetGuildId].roleToGive && data.discord_id) {
+      const guild = await client.guilds.fetch(targetGuildId);
+      await guild.members.fetch();
+
+      const member = guild.members.cache.get(data.discord_id);
+      if (member) {
+        const role = guild.roles.cache.get(config[targetGuildId].roleToGive);
+        if (role && !member.roles.cache.has(role.id)) {
+          await member.roles.add(role);
+          console.log(`🎖️ ให้ role ${role.name} แก่ ${member.user.tag}`);
+        }
+      }
+    }
 
     res.send({ status: "ok" });
   } catch (err) {
