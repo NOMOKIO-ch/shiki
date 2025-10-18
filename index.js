@@ -191,7 +191,7 @@ app.post("/submit", async (req,res)=>{
 
     await channel.send({ embeds:[summaryEmbed] });
 
-    // มอบ Role อัตโนมัติ
+    // มอบ Role อัตโนมัติ (ถ้ามี discord_id)
     if(guildConfig.roleToGive && data.discord_id){
       const guild = await client.guilds.fetch(targetGuildId);
       await guild.members.fetch();
