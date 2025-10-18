@@ -74,7 +74,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName("setrole")
     .setDescription("ตั้งค่ายศที่จะให้เมื่อมีคนกรอกฟอร์ม")
-    .addRoleOption(opt => opt.setName("role").setDescription("เลือกยศที่จะให้").setRequired(true))
+    .addStringOption(opt => opt.setName("role_name").setDescription("ชื่อยศที่จะให้").setRequired(true))
     .toJSON(),
 
   new SlashCommandBuilder()
@@ -138,10 +138,10 @@ client.on("interactionCreate", async (interaction) => {
 
     // /setrole
     if (commandName === "setrole") {
-      const role = options.getRole("role");
-      config.roleToGive = role.id;
+      const roleName = options.getString("role_name"); // รับชื่อยศ
+      config.roleToGive = roleName; // เก็บชื่อ
       saveConfig();
-      await interaction.reply({ content: `✅ ตั้งค่ายศที่จะให้เป็น: ${role.name}`, ephemeral: true });
+      await interaction.reply({ content: `✅ ตั้งค่ายศที่จะให้เป็น: ${roleName}`, ephemeral: true });
     }
 
     // /clearconfig
@@ -184,19 +184,17 @@ app.post("/submit", async (req, res) => {
     if (config.embedImage) embed.setImage(config.embedImage);
     await channel.send({ embeds: [embed] });
 
-    // 🎖️ ให้ยศอัตโนมัติ
+    // 🎖️ ให้ยศอัตโนมัติ (dynamic)
     if (config.roleToGive && (data.discord_user || data.discord_id)) {
       const guild = channel.guild;
       await guild.members.fetch();
 
       let member = null;
 
-      // ✅ ถ้ามี discord_id จากฟอร์ม ใช้ ID ก่อน
       if (data.discord_id) {
         member = guild.members.cache.get(data.discord_id);
       }
 
-      // 🔍 ถ้าไม่มี ID ให้ลองค้นจากชื่อ Discord
       if (!member && data.discord_user) {
         member = guild.members.cache.find(m =>
           m.user.tag.toLowerCase() === data.discord_user.toLowerCase() ||
@@ -205,16 +203,16 @@ app.post("/submit", async (req, res) => {
       }
 
       if (member) {
-        const role = guild.roles.cache.get(config.roleToGive);
+        const role = guild.roles.cache.find(r => r.name === config.roleToGive);
         if (role) {
-          if (member.roles.cache.has(role.id)) {
-            console.log(`ℹ️ ผู้ใช้ ${member.user.tag} มี role นี้อยู่แล้ว`);
-          } else {
+          if (!member.roles.cache.has(role.id)) {
             await member.roles.add(role);
             console.log(`🎖️ ให้ยศ ${role.name} แก่ ${member.user.tag}`);
+          } else {
+            console.log(`ℹ️ ผู้ใช้ ${member.user.tag} มี role นี้อยู่แล้ว`);
           }
         } else {
-          console.log("⚠️ ไม่พบ role ที่ตั้งไว้ใน config");
+          console.log(`⚠️ ไม่พบ role ชื่อ "${config.roleToGive}" ใน guild`);
         }
       } else {
         console.log(`⚠️ ไม่พบผู้ใช้ ${data.discord_user || data.discord_id} ใน guild`);
