@@ -17,8 +17,14 @@ import express from "express";
 import cors from "cors";
 
 const app = express();
-app.use(cors());
 app.use(express.json());
+
+// ✅ อนุญาตเฉพาะเว็บของนายเท่านั้น
+const allowedOrigin = "https://roleplayfrom.vercel.app";
+app.use(cors({
+  origin: allowedOrigin,
+  methods: ["POST", "GET"],
+}));
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 
@@ -29,7 +35,7 @@ function saveConfig() {
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
 }
 
-// บอทออนไลน์
+// 🟢 เมื่อบอทออนไลน์
 client.once("ready", () => {
   console.log(`✅ บอทออนไลน์แล้วในชื่อ ${client.user.tag}`);
 });
@@ -38,7 +44,7 @@ client.login(process.env.BOT_TOKEN)
   .then(() => console.log("✅ Login สำเร็จ"))
   .catch(err => console.error("❌ Login ไม่สำเร็จ:", err));
 
-// คำสั่ง
+// 🛠️ คำสั่ง Slash
 const commands = [
   new SlashCommandBuilder()
     .setName("setchannel")
@@ -84,10 +90,10 @@ const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
   }
 })();
 
-// จัดการคำสั่ง
+// 📦 จัดการคำสั่ง Slash
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
-  const { commandName, options, guildId, user } = interaction;
+  const { commandName, options, guildId } = interaction;
 
   if (!config[guildId])
     config[guildId] = {
@@ -101,7 +107,6 @@ client.on("interactionCreate", async (interaction) => {
     };
 
   try {
-    // /setchannel สำหรับสรุปฟอร์ม
     if (commandName === "setchannel") {
       const channel = options.getChannel("channel");
       config[guildId].summaryChannel = channel.id;
@@ -109,7 +114,6 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ content: `✅ ตั้งค่าช่องสรุปเป็น ${channel}`, ephemeral: true });
     }
 
-    // /setannounce สำหรับประกาศทันที
     if (commandName === "setannounce") {
       const channel = options.getChannel("channel");
       config[guildId].announceChannel = channel.id;
@@ -131,14 +135,12 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ content: `✅ ตั้งค่าการประกาศและประกาศเรียบร้อย`, ephemeral:true });
     }
 
-    // /setsummary
     if (commandName === "setsummary") {
       config[guildId].summaryMessage = options.getString("message");
       saveConfig();
       return interaction.reply({ content: `✅ ตั้ง template สรุปเรียบร้อย`, ephemeral: true });
     }
 
-    // /setrole
     if (commandName === "setrole") {
       const role = options.getRole("role");
       config[guildId].roleToGive = role.id;
@@ -146,23 +148,18 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ content: `✅ ตั้ง role ที่จะมอบหลังกรอกฟอร์มเป็น: ${role.name}`, ephemeral: true });
     }
 
-    // /preview
     if (commandName === "preview") {
       const guildConfig = config[guildId];
       const dummy = { OC:"Luna", OC_AGE:"17", IC:"Shiki", IC_AGE:"25", HEIGHT:"175cm", SPECIES:"Furry Fox", DISCORD:"Shiki#1234", HISTORY:"นักผจญภัย"};
+      
+      const announceEmbed = new EmbedBuilder()
+        .setTitle("📢 ตัวอย่างประกาศ")
+        .setDescription(guildConfig.announceMessage || "กรอกฟอร์มเพื่อสมัครตัวละคร")
+        .setColor(guildConfig.embedColor);
+      if (guildConfig.embedImage) announceEmbed.setImage(guildConfig.embedImage);
 
-      // ตัวอย่างประกาศ
-      if(guildConfig.announceChannel){
-        const announceEmbed = new EmbedBuilder()
-          .setTitle("📢 ตัวอย่างประกาศ")
-          .setDescription(guildConfig.announceMessage || "กรอกฟอร์มเพื่อสมัครตัวละคร")
-          .setColor(guildConfig.embedColor);
-        if(guildConfig.embedImage) announceEmbed.setImage(guildConfig.embedImage);
+      await interaction.reply({ embeds:[announceEmbed], ephemeral:true });
 
-        await interaction.reply({ embeds:[announceEmbed], ephemeral:true });
-      }
-
-      // ตัวอย่างสรุป
       if(guildConfig.summaryMessage){
         const summaryEmbed = new EmbedBuilder()
           .setTitle("📝 ตัวอย่างสรุป")
@@ -177,7 +174,6 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    // /clearsetting
     if (commandName === "clearsetting") {
       config[guildId] = {
         summaryChannel: null,
@@ -198,9 +194,12 @@ client.on("interactionCreate", async (interaction) => {
   }
 });
 
-// รับข้อมูลฟอร์ม
+// 📨 รับข้อมูลจากเว็บฟอร์ม (เฉพาะ roleplayfrom.vercel.app เท่านั้น)
 app.post("/submit", async (req,res)=>{
   try{
+    if (req.headers.origin !== allowedOrigin)
+      return res.status(403).send("❌ ไม่อนุญาตจากต้นทางนี้");
+
     const data = req.body;
     const targetGuildId = Object.keys(config)[0];
     if(!targetGuildId) return res.status(400).send("❌ ไม่พบเซิร์ฟเวอร์");
@@ -209,7 +208,6 @@ app.post("/submit", async (req,res)=>{
     const channel = await client.channels.fetch(guildConfig.summaryChannel).catch(()=>null);
     if(!channel) return res.status(404).send("❌ ไม่พบช่องสำหรับสรุป");
 
-    // ส่งสรุป
     const summaryEmbed = new EmbedBuilder().setTitle("📝 ข้อมูลใหม่").setColor(guildConfig.embedColor);
     if(guildConfig.summaryMessage){
       const fields = guildConfig.summaryMessage.match(/\{(.*?)\}/g);
@@ -222,7 +220,7 @@ app.post("/submit", async (req,res)=>{
 
     await channel.send({ embeds:[summaryEmbed] });
 
-    // มอบ Role อัตโนมัติ (ถ้ามี discord_id)
+    // 🎖️ มอบ Role
     if(guildConfig.roleToGive && data.discord_id){
       const guild = await client.guilds.fetch(targetGuildId);
       await guild.members.fetch();
@@ -240,4 +238,4 @@ app.post("/submit", async (req,res)=>{
   }
 });
 
-app.listen(5000,()=>console.log("🌐 Web API รันที่พอร์ต 5000"));
+app.listen(5000,()=>console.log("🌐 Web API รันที่พอร์ต 5000 และเชื่อมกับ https://roleplayfrom.vercel.app"));
