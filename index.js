@@ -266,8 +266,8 @@ app.post("/submit", async (req, res) => {
   }
 });
 
-// ใช้ PORT จาก environment หรือ default 5000
-const PORT = process.env.PORT || 5000;
+// ใช้ PORT จาก environment หรือ default 10000
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () =>
   console.log(`🌐 Web API รันที่พอร์ต ${PORT} และเชื่อมกับ ${allowedOrigin}`)
 );
