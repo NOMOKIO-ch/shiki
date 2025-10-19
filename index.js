@@ -75,11 +75,15 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("setsummary")
-    .setDescription("ตั้ง template สรุปข้อมูลฟอร์ม (สูงสุด 100 ตัว)")
+    .setDescription(
+      "ตั้ง template สรุปข้อมูลฟอร์ม (สูงสุด 100 ตัว, ใช้ {OC}, {IC}, {AGE}, {IC_AGE}, {hcm}, {SPECIES}, {DISCORD}, {STORY})"
+    )
     .addStringOption((opt) =>
       opt
         .setName("message")
-        .setDescription("ข้อความสรุป (ใช้ {OC}, {IC}, {OC_AGE}, etc.)")
+        .setDescription(
+          "ข้อความสรุปตัวอย่าง: 'กรอกข้อมูล: {OC}, {IC}, {AGE}, {IC_AGE}, {hcm}, {SPECIES}, {DISCORD}, {STORY}'"
+        )
         .setRequired(true)
     ),
 
@@ -155,7 +159,14 @@ client.on("interactionCreate", async (interaction) => {
 
     // /setsummary
     if (commandName === "setsummary") {
-      config[guildId].summaryMessage = options.getString("message");
+      const msg = options.getString("message");
+      if (msg.length > 100) {
+        return interaction.reply({
+          content: "❌ ข้อความสรุปเกิน 100 ตัวอักษร กรุณาลดความยาว",
+          ephemeral: true,
+        });
+      }
+      config[guildId].summaryMessage = msg;
       saveConfig();
       return interaction.reply({ content: `✅ ตั้ง template สรุปเรียบร้อย`, ephemeral: true });
     }
@@ -173,13 +184,13 @@ client.on("interactionCreate", async (interaction) => {
       const guildConfig = config[guildId];
       const dummy = {
         OC: "Luna",
-        OC_AGE: "17",
         IC: "Shiki",
+        AGE: "17",
         IC_AGE: "25",
-        HEIGHT: "175cm",
+        hcm: "175cm",
         SPECIES: "Furry Fox",
         DISCORD: "Shiki#1234",
-        HISTORY: "นักผจญภัย",
+        STORY: "นักผจญภัย",
       };
 
       const announceEmbed = new EmbedBuilder()
