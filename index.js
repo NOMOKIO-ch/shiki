@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import fs from "fs";
+import path from "path";
 import {
   Client,
   GatewayIntentBits,
@@ -9,9 +10,6 @@ import {
   Routes,
   SlashCommandBuilder,
   EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
 } from "discord.js";
 import express from "express";
 import cors from "cors";
@@ -21,14 +19,28 @@ app.use(express.json());
 
 // 🧩 ตรวจสอบว่าอยู่ใน Local หรือ Cloud
 const isLocal = !process.env.KOYEB_APP_ID && !process.env.RENDER;
+
+// 📁 อ่าน .gitignore เฉพาะตอน Local
+let ignoredFiles = [];
+if (isLocal) {
+  const gitignorePath = path.join(process.cwd(), ".gitignore");
+  if (fs.existsSync(gitignorePath)) {
+    ignoredFiles = fs
+      .readFileSync(gitignorePath, "utf8")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#"));
+    console.log("📄 โหลดรายการ .gitignore แล้ว:", ignoredFiles);
+  }
+}
+
+// ✅ CORS
 const allowedOrigins = [
   "https://roleplayfrom.vercel.app",
   "https://www.roleplayfrom.vercel.app",
 ];
-if (isLocal)
-  allowedOrigins.push("http://localhost:10000", "http://127.0.0.1:10000");
+if (isLocal) allowedOrigins.push("http://localhost:10000", "http://127.0.0.1:10000");
 
-// ✅ ตั้งค่า CORS
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -44,13 +56,19 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
 });
 
+// 📦 Config
 const CONFIG_FILE = "./config.json";
-let config = fs.existsSync(CONFIG_FILE)
-  ? JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"))
-  : {};
+let config = {};
+if (!ignoredFiles.includes("config.json")) {
+  config = fs.existsSync(CONFIG_FILE) ? JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8")) : {};
+} else {
+  console.log("⚠️ ข้ามไฟล์ config.json (อยู่ใน .gitignore)");
+}
 
 function saveConfig() {
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+  if (!ignoredFiles.includes("config.json")) {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+  }
 }
 
 // 🟢 เมื่อบอทออนไลน์
@@ -58,12 +76,13 @@ client.once("ready", () => {
   console.log(`✅ บอทออนไลน์แล้วในชื่อ ${client.user.tag}`);
 });
 
+// 🔑 Login
 client
   .login(process.env.BOT_TOKEN)
   .then(() => console.log("✅ Login สำเร็จ"))
   .catch((err) => console.error("❌ Login ไม่สำเร็จ:", err));
 
-// 🧩 สร้างคำสั่ง Slash
+// 🧩 คำสั่ง Slash
 const commands = [
   new SlashCommandBuilder()
     .setName("setchannel")
@@ -94,7 +113,7 @@ const commands = [
     .addStringOption((opt) =>
       opt
         .setName("message")
-        .setDescription("กรอกข้อความสรุป เช่น {OC},{IC},{A},{IC_A},{HCM},{SPC},{DC},{STR}")
+        .setDescription("กรอกข้อความสรุป: ใช้ {OC},{IC},{A},{IC_A},{HCM},{SPC},{DC},{STR}")
         .setRequired(true)
     ),
 
@@ -110,21 +129,19 @@ const commands = [
   new SlashCommandBuilder().setName("clearsetting").setDescription("ล้างค่าการตั้งค่าของเซิร์ฟ"),
 ].map((cmd) => cmd.toJSON());
 
-// 🔁 ลงทะเบียนคำสั่ง
+// 🔁 ลงทะเบียน Slash Commands
 const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
 (async () => {
   try {
     console.log("🔄 กำลังลงทะเบียนคำสั่ง...");
-    await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), {
-      body: commands,
-    });
+    await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
     console.log("✅ ลงทะเบียนคำสั่งเรียบร้อย!");
   } catch (err) {
     console.error("❌ ลงทะเบียนคำสั่งล้มเหลว:", err);
   }
 })();
 
-// 📦 จัดการคำสั่ง Slash
+// 📌 จัดการ Slash Command
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   const { commandName, options, guildId } = interaction;
@@ -141,18 +158,13 @@ client.on("interactionCreate", async (interaction) => {
     };
 
   try {
-    // 🟢 /setchannel
     if (commandName === "setchannel") {
       const channel = options.getChannel("channel");
       config[guildId].summaryChannel = channel.id;
       saveConfig();
-      return interaction.reply({
-        content: `✅ ตั้งค่าช่องสรุปเป็น <#${channel.id}>`,
-        ephemeral: true,
-      });
+      return interaction.reply({ content: `✅ ตั้งค่าช่องสรุปเป็น <#${channel.id}>`, ephemeral: true });
     }
 
-    // 📣 /setannounce
     if (commandName === "setannounce") {
       const channel = options.getChannel("channel");
       config[guildId].announceChannel = channel.id;
@@ -165,69 +177,32 @@ client.on("interactionCreate", async (interaction) => {
         .setTitle("📢 ประกาศฟอร์ม")
         .setDescription(config[guildId].announceMessage)
         .setColor(config[guildId].embedColor);
-      if (config[guildId].embedImage)
-        embed.setImage(config[guildId].embedImage);
+      if (config[guildId].embedImage) embed.setImage(config[guildId].embedImage);
 
-      // ✅ ปุ่มเปิดฟอร์ม
-      const button = new ButtonBuilder()
-        .setLabel("📝 กรอกฟอร์ม")
-        .setStyle(ButtonStyle.Link)
-        .setURL("https://roleplayfrom.vercel.app");
+      const announceChannel = await client.channels.fetch(config[guildId].announceChannel).catch(() => null);
+      if (announceChannel) await announceChannel.send({ embeds: [embed] });
 
-      const row = new ActionRowBuilder().addComponents(button);
-
-      const announceChannel = await client.channels
-        .fetch(config[guildId].announceChannel)
-        .catch(() => null);
-      if (announceChannel)
-        await announceChannel.send({ embeds: [embed], components: [row] });
-
-      return interaction.reply({
-        content: `✅ ตั้งค่าการประกาศใน <#${channel.id}> แล้ว!`,
-        ephemeral: true,
-      });
+      return interaction.reply({ content: `✅ ตั้งค่าการประกาศใน <#${channel.id}> แล้ว!`, ephemeral: true });
     }
 
-    // 🧾 /setsummary
     if (commandName === "setsummary") {
       const msg = options.getString("message");
-      if (msg.length > 100)
-        return interaction.reply({
-          content: "❌ ข้อความสรุปเกิน 100 ตัวอักษร!",
-          ephemeral: true,
-        });
+      if (msg.length > 100) return interaction.reply({ content: "❌ ข้อความสรุปเกิน 100 ตัวอักษร!", ephemeral: true });
       config[guildId].summaryMessage = msg;
       saveConfig();
-      return interaction.reply({
-        content: "✅ บันทึกเทมเพลตสรุปเรียบร้อย!",
-        ephemeral: true,
-      });
+      return interaction.reply({ content: "✅ บันทึกเทมเพลตสรุปเรียบร้อย!", ephemeral: true });
     }
 
-    // 🧩 /setrole
     if (commandName === "setrole") {
       const role = options.getRole("role");
       config[guildId].roleToGive = role.id;
       saveConfig();
-      return interaction.reply({
-        content: `✅ ตั้ง role หลังกรอกฟอร์มเป็น: ${role.name}`,
-        ephemeral: true,
-      });
+      return interaction.reply({ content: `✅ ตั้ง role หลังกรอกฟอร์มเป็น: ${role.name}`, ephemeral: true });
     }
 
-    // 👁️ /preview
     if (commandName === "preview") {
       const g = config[guildId];
-      const dummy = {
-        OC: "Luna",
-        IC: "Shiki",
-        A: "17",
-        IC_A: "25",
-        HCM: "175cm",
-        SPC: "Furry Fox",
-        DC: "Shiki#1234",
-        STR: "นักผจญภัย",
-      };
+      const dummy = { OC: "Luna", IC: "Shiki", A: "17", IC_A: "25", HCM: "175cm", SPC: "Furry Fox", DC: "Shiki#1234", STR: "นักผจญภัย" };
 
       const announceEmbed = new EmbedBuilder()
         .setTitle("📢 ตัวอย่างประกาศ")
@@ -237,38 +212,20 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.reply({ embeds: [announceEmbed], ephemeral: true });
 
       if (g.summaryMessage) {
-        const summaryEmbed = new EmbedBuilder()
-          .setTitle("📝 ตัวอย่างสรุป")
-          .setColor(g.embedColor);
+        const summaryEmbed = new EmbedBuilder().setTitle("📝 ตัวอย่างสรุป").setColor(g.embedColor);
         const fields = g.summaryMessage.match(/\{(.*?)\}/g);
         fields?.forEach((f) => {
           const key = f.replace(/[{}]/g, "");
-          summaryEmbed.addFields({
-            name: key,
-            value: dummy[key.toUpperCase()] || "ไม่ระบุ",
-            inline: true,
-          });
+          summaryEmbed.addFields({ name: key, value: dummy[key.toUpperCase()] || "ไม่ระบุ", inline: true });
         });
         await interaction.followUp({ embeds: [summaryEmbed], ephemeral: true });
       }
     }
 
-    // 🧹 /clearsetting
     if (commandName === "clearsetting") {
-      config[guildId] = {
-        summaryChannel: null,
-        announceChannel: null,
-        announceMessage: null,
-        summaryMessage: null,
-        roleToGive: null,
-        embedImage: null,
-        embedColor: "#FFD700",
-      };
+      config[guildId] = { summaryChannel: null, announceChannel: null, announceMessage: null, summaryMessage: null, roleToGive: null, embedImage: null, embedColor: "#FFD700" };
       saveConfig();
-      return interaction.reply({
-        content: "🧹 ล้างค่าการตั้งค่าของเซิร์ฟเรียบร้อย!",
-        ephemeral: true,
-      });
+      return interaction.reply({ content: "🧹 ล้างค่าการตั้งค่าของเซิร์ฟเรียบร้อย!", ephemeral: true });
     }
   } catch (err) {
     console.error(err);
@@ -281,26 +238,17 @@ app.post("/submit", async (req, res) => {
   try {
     const data = req.body;
     const targetGuildId = data.guild_id;
-    if (!targetGuildId || !config[targetGuildId])
-      return res.status(400).send("❌ ไม่พบเซิร์ฟเวอร์");
+    if (!targetGuildId || !config[targetGuildId]) return res.status(400).send("❌ ไม่พบเซิร์ฟเวอร์");
 
     const guildConfig = config[targetGuildId];
-    const channel = await client.channels
-      .fetch(guildConfig.summaryChannel)
-      .catch(() => null);
+    const channel = await client.channels.fetch(guildConfig.summaryChannel).catch(() => null);
     if (!channel) return res.status(404).send("❌ ไม่พบช่องสำหรับสรุป");
 
-    const embed = new EmbedBuilder()
-      .setTitle("📝 ข้อมูลใหม่")
-      .setColor(guildConfig.embedColor);
+    const embed = new EmbedBuilder().setTitle("📝 ข้อมูลใหม่").setColor(guildConfig.embedColor);
     const fields = guildConfig.summaryMessage?.match(/\{(.*?)\}/g);
     fields?.forEach((f) => {
       const key = f.replace(/[{}]/g, "");
-      embed.addFields({
-        name: key,
-        value: data[key.toLowerCase()] || "ไม่ระบุ",
-        inline: true,
-      });
+      embed.addFields({ name: key, value: data[key.toLowerCase()] || "ไม่ระบุ", inline: true });
     });
     if (guildConfig.embedImage) embed.setImage(guildConfig.embedImage);
 
@@ -325,6 +273,4 @@ app.post("/submit", async (req, res) => {
 
 // 🌐 รันเซิร์ฟเวอร์
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log(`🌐 Web API รันที่พอร์ต ${PORT} | โหมด: ${isLocal ? "Local" : "Cloud"}`);
-});
+app.listen(PORT, () => console.log(`🌐 Web API รันที่พอร์ต ${PORT} | โหมด: ${isLocal ? "Local" : "Cloud"}`));
