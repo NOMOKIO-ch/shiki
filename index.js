@@ -75,13 +75,14 @@ new SlashCommandBuilder()
 
 new SlashCommandBuilder()
   .setName("setsummary")
-  .setDescription("ตั้ง template สรุป 8 ฟิลด์ เช่น {OC},{IC},{A},{IC_A},{HCM},{SPC},{DC},{STR}")
+  .setDescription("ตั้ง template สรุป เช่น {OC},{IC},{A},{IC_A},{HCM},{SPC},{DC},{STR}")
   .addStringOption((opt) =>
     opt
       .setName("message")
-      .setDescription("กรอกข้อความสรุป: ใช้ {OC},{IC},{A},{IC_A},{H,{SPC},{DC},{STR}")
+      .setDescription("กรอกข้อความสรุป: ใช้ {OC},{IC},{A},{IC_A},{HCM},{SPC},{DC},{STR}")
       .setRequired(true)
   ),
+
 
   new SlashCommandBuilder()
     .setName("setrole")
