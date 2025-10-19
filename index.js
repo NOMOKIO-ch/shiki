@@ -73,17 +73,15 @@ const commands = [
       opt.setName("color").setDescription("สี embed เช่น #FFD700")
     ),
 
-new SlashCommandBuilder()
-  .setName("setsummary")
-  .setDescription("ตั้ง template สรุป 8 ฟิลด์: {OC},{IC},{AGE},{IC_AGE},{hcm},{SPECIES},{DISCORD},{STORY}")
-  .addStringOption((opt) =>
-    opt
-      .setName("message")
-      .setDescription(
-        "ข้อความสรุปตัวอย่าง: 'กรอกข้อมูล: {OC},{IC},{AGE},{IC_AGE},{hcm},{SPECIES},{DISCORD},{STORY}'"
-      )
-      .setRequired(true)
-  ),
+  new SlashCommandBuilder()
+    .setName("setsummary")
+    .setDescription("ตั้ง template สรุป 8 ฟิลด์ เช่น {OC},{IC},{AGE},{IC_AGE},{hcm},{SPECIES},{DISCORD},{STORY}")
+    .addStringOption((opt) =>
+      opt
+        .setName("message")
+        .setDescription("กรอกข้อความสรุป: ใช้ {OC},{IC},{AGE},{IC_AGE},{hcm},{SPECIES},{DISCORD},{STORY}")
+        .setRequired(true)
+    ),
 
   new SlashCommandBuilder()
     .setName("setrole")
