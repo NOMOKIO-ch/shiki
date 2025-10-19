@@ -9,9 +9,6 @@ import {
   Routes,
   SlashCommandBuilder,
   EmbedBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  ActionRowBuilder,
 } from "discord.js";
 import express from "express";
 import cors from "cors";
@@ -19,7 +16,7 @@ import cors from "cors";
 const app = express();
 app.use(express.json());
 
-// ✅ อนุญาตเฉพาะเว็บของนายเท่านั้น
+// ✅ อนุญาตเฉพาะเว็บของคุณเท่านั้น
 const allowedOrigin = "https://roleplayfrom.vercel.app";
 app.use(cors({
   origin: allowedOrigin,
@@ -56,17 +53,17 @@ const commands = [
     .setDescription("ตั้งค่าการประกาศฟอร์มและประกาศทันที")
     .addChannelOption(opt => opt.setName("channel").setDescription("ช่องประกาศ").setRequired(true))
     .addStringOption(opt => opt.setName("message").setDescription("ข้อความประกาศ").setRequired(true))
-    .addStringOption(opt => opt.setName("image").setDescription("ลิงก์รูป/ GIF"))
+    .addStringOption(opt => opt.setName("image").setDescription("ลิงก์รูป/GIF"))
     .addStringOption(opt => opt.setName("color").setDescription("สี embed เช่น #FFD700")),
 
   new SlashCommandBuilder()
     .setName("setsummary")
-    .setDescription("ตั้ง template สรุปข้อมูลฟอร์ม (ใช้ {OC}, {IC}, {OC_AGE}, {IC_AGE}, {HEIGHT}, {SPECIES}, {DISCORD}, {HISTORY})")
-    .addStringOption(opt => opt.setName("message").setDescription("ข้อความสรุป").setRequired(true)),
+    .setDescription("ตั้ง template สรุปข้อมูลฟอร์ม (สูงสุด 100 ตัว)") // <=100 ตัวอักษร
+    .addStringOption(opt => opt.setName("message").setDescription("ข้อความสรุป (ใช้ {OC}, {IC}, {OC_AGE}, etc.)").setRequired(true)),
 
   new SlashCommandBuilder()
     .setName("setrole")
-    .setDescription("ตั้ง role ที่มอบหลังกรอกฟอร์ม")
+    .setDescription("ตั้ง role หลังกรอกฟอร์ม")
     .addRoleOption(opt => opt.setName("role").setDescription("เลือก role").setRequired(true)),
 
   new SlashCommandBuilder()
@@ -75,7 +72,7 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("clearsetting")
-    .setDescription("ล้างค่าการตั้งค่าของเซิร์ฟ")
+    .setDescription("ล้างค่าการตั้งค่าของเซิร์ฟ"),
 ].map(cmd => cmd.toJSON());
 
 // ลงทะเบียนคำสั่ง
@@ -107,13 +104,15 @@ client.on("interactionCreate", async (interaction) => {
     };
 
   try {
+    // /setchannel
     if (commandName === "setchannel") {
       const channel = options.getChannel("channel");
       config[guildId].summaryChannel = channel.id;
       saveConfig();
-      return interaction.reply({ content: `✅ ตั้งค่าช่องสรุปเป็น ${channel}`, ephemeral: true });
+      return interaction.reply({ content: `✅ ตั้งค่าช่องสรุปเป็น <#${channel.id}>`, ephemeral: true });
     }
 
+    // /setannounce
     if (commandName === "setannounce") {
       const channel = options.getChannel("channel");
       config[guildId].announceChannel = channel.id;
@@ -122,7 +121,7 @@ client.on("interactionCreate", async (interaction) => {
       config[guildId].embedColor = options.getString("color") || "#FFD700";
       saveConfig();
 
-      // ส่งประกาศทันที
+      // ส่ง embed ไปใน channel จริง
       const announceEmbed = new EmbedBuilder()
         .setTitle("📢 ประกาศฟอร์ม")
         .setDescription(config[guildId].announceMessage)
@@ -130,28 +129,36 @@ client.on("interactionCreate", async (interaction) => {
       if (config[guildId].embedImage) announceEmbed.setImage(config[guildId].embedImage);
 
       const announceChannel = await client.channels.fetch(config[guildId].announceChannel).catch(()=>null);
-      if(announceChannel) await announceChannel.send({ embeds:[announceEmbed] });
+      if (announceChannel) await announceChannel.send({ embeds:[announceEmbed] });
 
-      return interaction.reply({ content: `✅ ตั้งค่าการประกาศและประกาศเรียบร้อย`, ephemeral:true });
+      // reply เฉพาะคนเรียก
+      return interaction.reply({ content: `✅ ตั้งค่าการประกาศเรียบร้อยใน <#${channel.id}>`, ephemeral:true });
     }
 
+    // /setsummary
     if (commandName === "setsummary") {
       config[guildId].summaryMessage = options.getString("message");
       saveConfig();
-      return interaction.reply({ content: `✅ ตั้ง template สรุปเรียบร้อย`, ephemeral: true });
+      return interaction.reply({ content: `✅ ตั้ง template สรุปเรียบร้อย`, ephemeral:true });
     }
 
+    // /setrole
     if (commandName === "setrole") {
       const role = options.getRole("role");
       config[guildId].roleToGive = role.id;
       saveConfig();
-      return interaction.reply({ content: `✅ ตั้ง role ที่จะมอบหลังกรอกฟอร์มเป็น: ${role.name}`, ephemeral: true });
+      return interaction.reply({ content: `✅ ตั้ง role หลังกรอกฟอร์มเป็น: ${role.name}`, ephemeral:true });
     }
 
+    // /preview
     if (commandName === "preview") {
       const guildConfig = config[guildId];
-      const dummy = { OC:"Luna", OC_AGE:"17", IC:"Shiki", IC_AGE:"25", HEIGHT:"175cm", SPECIES:"Furry Fox", DISCORD:"Shiki#1234", HISTORY:"นักผจญภัย"};
-      
+      const dummy = { 
+        OC:"Luna", OC_AGE:"17", IC:"Shiki", IC_AGE:"25", 
+        HEIGHT:"175cm", SPECIES:"Furry Fox", DISCORD:"Shiki#1234", HISTORY:"นักผจญภัย"
+      };
+
+      // ตัวอย่างประกาศ
       const announceEmbed = new EmbedBuilder()
         .setTitle("📢 ตัวอย่างประกาศ")
         .setDescription(guildConfig.announceMessage || "กรอกฟอร์มเพื่อสมัครตัวละคร")
@@ -160,6 +167,7 @@ client.on("interactionCreate", async (interaction) => {
 
       await interaction.reply({ embeds:[announceEmbed], ephemeral:true });
 
+      // ตัวอย่างสรุป
       if(guildConfig.summaryMessage){
         const summaryEmbed = new EmbedBuilder()
           .setTitle("📝 ตัวอย่างสรุป")
@@ -170,10 +178,12 @@ client.on("interactionCreate", async (interaction) => {
           summaryEmbed.addFields({ name:key, value:dummy[key]||"ไม่ระบุ", inline:true });
         });
         if(guildConfig.embedImage) summaryEmbed.setImage(guildConfig.embedImage);
+
         await interaction.followUp({ embeds:[summaryEmbed], ephemeral:true });
       }
     }
 
+    // /clearsetting
     if (commandName === "clearsetting") {
       config[guildId] = {
         summaryChannel: null,
@@ -194,7 +204,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 });
 
-// 📨 รับข้อมูลจากเว็บฟอร์ม (เฉพาะ roleplayfrom.vercel.app เท่านั้น)
+// 📨 รับข้อมูลจากเว็บฟอร์ม
 app.post("/submit", async (req,res)=>{
   try{
     if (req.headers.origin !== allowedOrigin)
