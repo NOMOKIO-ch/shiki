@@ -10,6 +10,9 @@ import {
   Routes,
   SlashCommandBuilder,
   EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } from "discord.js";
 import express from "express";
 import cors from "cors";
@@ -179,8 +182,15 @@ client.on("interactionCreate", async (interaction) => {
         .setColor(config[guildId].embedColor);
       if (config[guildId].embedImage) embed.setImage(config[guildId].embedImage);
 
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setLabel("📝 กรอกฟอร์มที่นี่")
+          .setStyle(ButtonStyle.Link)
+          .setURL("https://roleplayfrom.vercel.app") // เปลี่ยนเป็นลิงก์ฟอร์มจริง
+      );
+
       const announceChannel = await client.channels.fetch(config[guildId].announceChannel).catch(() => null);
-      if (announceChannel) await announceChannel.send({ embeds: [embed] });
+      if (announceChannel) await announceChannel.send({ embeds: [embed], components: [row] });
 
       return interaction.reply({ content: `✅ ตั้งค่าการประกาศใน <#${channel.id}> แล้ว!`, ephemeral: true });
     }
