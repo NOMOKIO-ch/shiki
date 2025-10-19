@@ -1,14 +1,16 @@
 {
   "name": "shikiv4",
   "version": "1.0.0",
+  "description": "Discord bot สำหรับจัดการฟอร์มและประกาศในเซิร์ฟเวอร์",
   "main": "index.js",
+  "type": "module",
   "scripts": {
+    "start": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "keywords": ["discord", "bot", "form", "roleplay"],
   "author": "",
   "license": "ISC",
-  "description": "",
   "dependencies": {
     "cors": "^2.8.5",
     "discord.js": "^14.23.2",
