@@ -9,6 +9,9 @@ import {
   Routes,
   SlashCommandBuilder,
   EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } from "discord.js";
 import express from "express";
 import cors from "cors";
@@ -16,15 +19,16 @@ import cors from "cors";
 const app = express();
 app.use(express.json());
 
-// 🧩 ตรวจสอบว่าอยู่ใน Local หรือ Cloud โดยอัตโนมัติ
+// 🧩 ตรวจสอบว่าอยู่ใน Local หรือ Cloud
 const isLocal = !process.env.KOYEB_APP_ID && !process.env.RENDER;
 const allowedOrigins = [
   "https://roleplayfrom.vercel.app",
   "https://www.roleplayfrom.vercel.app",
 ];
-if (isLocal) allowedOrigins.push("http://localhost:10000", "http://127.0.0.1:10000");
+if (isLocal)
+  allowedOrigins.push("http://localhost:10000", "http://127.0.0.1:10000");
 
-// ✅ ตั้งค่า CORS ให้รองรับทั้ง Local / Cloud
+// ✅ ตั้งค่า CORS
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -59,7 +63,7 @@ client
   .then(() => console.log("✅ Login สำเร็จ"))
   .catch((err) => console.error("❌ Login ไม่สำเร็จ:", err));
 
-// 🧩 คำสั่ง Slash
+// 🧩 สร้างคำสั่ง Slash
 const commands = [
   new SlashCommandBuilder()
     .setName("setchannel")
@@ -90,7 +94,7 @@ const commands = [
     .addStringOption((opt) =>
       opt
         .setName("message")
-        .setDescription("กรอกข้อความสรุป: ใช้ {OC},{IC},{A},{IC_A},{HCM},{SPC},{DC},{STR}")
+        .setDescription("กรอกข้อความสรุป เช่น {OC},{IC},{A},{IC_A},{HCM},{SPC},{DC},{STR}")
         .setRequired(true)
     ),
 
@@ -106,7 +110,7 @@ const commands = [
   new SlashCommandBuilder().setName("clearsetting").setDescription("ล้างค่าการตั้งค่าของเซิร์ฟ"),
 ].map((cmd) => cmd.toJSON());
 
-// 🔁 ลงทะเบียนคำสั่ง Slash
+// 🔁 ลงทะเบียนคำสั่ง
 const rest = new REST({ version: "10" }).setToken(process.env.BOT_TOKEN);
 (async () => {
   try {
@@ -164,10 +168,19 @@ client.on("interactionCreate", async (interaction) => {
       if (config[guildId].embedImage)
         embed.setImage(config[guildId].embedImage);
 
+      // ✅ ปุ่มเปิดฟอร์ม
+      const button = new ButtonBuilder()
+        .setLabel("📝 กรอกฟอร์ม")
+        .setStyle(ButtonStyle.Link)
+        .setURL("https://roleplayfrom.vercel.app");
+
+      const row = new ActionRowBuilder().addComponents(button);
+
       const announceChannel = await client.channels
         .fetch(config[guildId].announceChannel)
         .catch(() => null);
-      if (announceChannel) await announceChannel.send({ embeds: [embed] });
+      if (announceChannel)
+        await announceChannel.send({ embeds: [embed], components: [row] });
 
       return interaction.reply({
         content: `✅ ตั้งค่าการประกาศใน <#${channel.id}> แล้ว!`,
@@ -313,7 +326,5 @@ app.post("/submit", async (req, res) => {
 // 🌐 รันเซิร์ฟเวอร์
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(
-    `🌐 Web API รันที่พอร์ต ${PORT} | โหมด: ${isLocal ? "Local" : "Cloud"}`
-  );
+  console.log(`🌐 Web API รันที่พอร์ต ${PORT} | โหมด: ${isLocal ? "Local" : "Cloud"}`);
 });
