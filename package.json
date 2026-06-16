@@ -1,6 +1,6 @@
 {
   "name": "shikiv4",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Discord bot สำหรับจัดการฟอร์มและประกาศในเซิร์ฟเวอร์",
   "main": "index.js",
   "type": "module",
@@ -8,6 +8,9 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "keywords": [
     "discord",
@@ -21,7 +24,8 @@
     "cors": "^2.8.5",
     "discord.js": "^14.23.2",
     "dotenv": "^17.2.3",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "firebase-admin": "^13.10.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
