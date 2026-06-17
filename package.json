@@ -1,6 +1,6 @@
 {
   "name": "shikiv4",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Discord bot สำหรับจัดการฟอร์มและประกาศในเซิร์ฟเวอร์",
   "main": "index.js",
   "type": "module",

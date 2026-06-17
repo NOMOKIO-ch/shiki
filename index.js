@@ -249,18 +249,64 @@ function buildEmbed(section, replacements = {}, fallbackDescription = "") {
   return embed;
 }
 
-function parseFirebaseServiceAccount() {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64
-    ? Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, "base64").toString("utf8")
-    : process.env.FIREBASE_SERVICE_ACCOUNT;
-
-  if (!raw) return null;
-
-  const serviceAccount = JSON.parse(raw);
-  if (serviceAccount.private_key) {
-    serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
+function stripWrappingQuotes(value) {
+  const text = String(value || "").trim();
+  if (
+    (text.startsWith('"') && text.endsWith('"')) ||
+    (text.startsWith("'") && text.endsWith("'"))
+  ) {
+    return text.slice(1, -1).trim();
   }
+  return text;
+}
+
+function decodeServiceAccountBase64(value) {
+  const text = stripWrappingQuotes(value);
+  if (!text) return "";
+  if (text.startsWith("{")) return text;
+
+  const compact = text.replace(/\s/g, "").replace(/-/g, "+").replace(/_/g, "/");
+  if (!/^[a-z0-9+/=]+$/i.test(compact)) {
+    throw new Error("FIREBASE_SERVICE_ACCOUNT_BASE64 contains characters that are not valid base64.");
+  }
+
+  const decoded = Buffer.from(compact, "base64").toString("utf8").trim();
+  if (!decoded.startsWith("{")) {
+    throw new Error("FIREBASE_SERVICE_ACCOUNT_BASE64 decoded successfully, but it is not JSON.");
+  }
+
+  return decoded;
+}
+
+function normalizeServiceAccount(jsonText) {
+  const serviceAccount = JSON.parse(jsonText);
+  if (!serviceAccount || typeof serviceAccount !== "object") {
+    throw new Error("Service account must be a JSON object.");
+  }
+  if (!serviceAccount.project_id || !serviceAccount.client_email || !serviceAccount.private_key) {
+    throw new Error("Service account JSON must include project_id, client_email, and private_key.");
+  }
+  serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
   return serviceAccount;
+}
+
+function parseFirebaseServiceAccount() {
+  try {
+    if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
+      return normalizeServiceAccount(decodeServiceAccountBase64(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64));
+    }
+
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+      return normalizeServiceAccount(stripWrappingQuotes(process.env.FIREBASE_SERVICE_ACCOUNT));
+    }
+  } catch (error) {
+    console.error(
+      "Firebase bridge disabled: service account env is invalid. Use raw JSON in FIREBASE_SERVICE_ACCOUNT or base64 JSON in FIREBASE_SERVICE_ACCOUNT_BASE64."
+    );
+    console.error(`Firebase service account parse detail: ${error.message}`);
+  }
+
+  return null;
 }
 
 function startFirebaseBridge() {
@@ -272,20 +318,24 @@ function startFirebaseBridge() {
     return;
   }
 
-  if (!getApps().length) {
-    initializeFirebaseAdmin({
-      credential: cert(serviceAccount),
-      databaseURL: FIREBASE_DATABASE_URL
+  try {
+    if (!getApps().length) {
+      initializeFirebaseAdmin({
+        credential: cert(serviceAccount),
+        databaseURL: FIREBASE_DATABASE_URL
+      });
+    }
+
+    firebaseDb = getAdminDatabase();
+    Object.keys(config).forEach((guildId) => {
+      const guildConfig = ensureGuildConfig(guildId);
+      if (guildConfig.projectId) watchProjectRecords(guildConfig.projectId);
     });
+
+    console.log(`Firebase bridge enabled for ${watchedProjects.size} linked project(s).`);
+  } catch (error) {
+    console.error(`Firebase bridge disabled: ${error.message}`);
   }
-
-  firebaseDb = getAdminDatabase();
-  Object.keys(config).forEach((guildId) => {
-    const guildConfig = ensureGuildConfig(guildId);
-    if (guildConfig.projectId) watchProjectRecords(guildConfig.projectId);
-  });
-
-  console.log(`Firebase bridge enabled for ${watchedProjects.size} linked project(s).`);
 }
 
 async function getProject(projectId) {

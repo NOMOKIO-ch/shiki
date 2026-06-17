@@ -26,6 +26,14 @@ Use `FIREBASE_SERVICE_ACCOUNT_BASE64` on hosting panels because it avoids multil
 
 This patch pins `firebase-admin` to `12.7.0` so hosts running Node 19 do not receive Firebase `EBADENGINE` warnings that require Node 20.
 
+To create `FIREBASE_SERVICE_ACCOUNT_BASE64` on Windows PowerShell:
+
+```powershell
+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Get-Content -Raw ".\service-account.json")))
+```
+
+Paste the whole output into Wispbyte. Do not paste only the `private_key` value.
+
 ## Discord requirements
 
 Enable these bot permissions/intents:
