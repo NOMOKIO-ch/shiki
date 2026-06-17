@@ -25,8 +25,14 @@ const CONFIG_FILE = "./config.json";
 const MAX_FORM_FIELDS = 20;
 const DEFAULT_COLOR = "#00D1FF";
 const FORM_BASE_URL = (process.env.FORM_BASE_URL || "https://roleplayfrom.vercel.app").replace(/\/$/, "");
+const DEFAULT_FIREBASE_DATABASE_URL = "https://namez-base-default-rtdb.firebaseio.com";
+const SERVICE_ACCOUNT_BASE64_ENV = stripWrappingQuotes(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 || "");
+const MISPLACED_DATABASE_URL =
+  isUrl(SERVICE_ACCOUNT_BASE64_ENV) && /firebaseio\.com\/?$/i.test(SERVICE_ACCOUNT_BASE64_ENV)
+    ? SERVICE_ACCOUNT_BASE64_ENV
+    : "";
 const FIREBASE_DATABASE_URL =
-  process.env.FIREBASE_DATABASE_URL || "https://namez-base-default-rtdb.firebaseio.com";
+  (process.env.FIREBASE_DATABASE_URL || MISPLACED_DATABASE_URL || DEFAULT_FIREBASE_DATABASE_URL).replace(/\/$/, "");
 const PORT = Number(process.env.PORT || 10000);
 
 const formOrigin = (() => {
@@ -131,6 +137,10 @@ function defaultGuildConfig() {
 
 function cleanString(value, max = 1000) {
   return String(value ?? "").trim().slice(0, max);
+}
+
+function isUrl(value) {
+  return /^https?:\/\/\S+$/i.test(String(value || "").trim());
 }
 
 function safeColor(value, fallback = DEFAULT_COLOR) {
@@ -264,6 +274,11 @@ function decodeServiceAccountBase64(value) {
   const text = stripWrappingQuotes(value);
   if (!text) return "";
   if (text.startsWith("{")) return text;
+  if (isUrl(text)) {
+    throw new Error(
+      "FIREBASE_SERVICE_ACCOUNT_BASE64 contains a URL. Put that URL in FIREBASE_DATABASE_URL and put base64 service-account JSON in FIREBASE_SERVICE_ACCOUNT_BASE64."
+    );
+  }
 
   const compact = text.replace(/\s/g, "").replace(/-/g, "+").replace(/_/g, "/");
   if (!/^[a-z0-9+/=]+$/i.test(compact)) {
@@ -292,8 +307,14 @@ function normalizeServiceAccount(jsonText) {
 
 function parseFirebaseServiceAccount() {
   try {
-    if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
-      return normalizeServiceAccount(decodeServiceAccountBase64(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64));
+    if (MISPLACED_DATABASE_URL) {
+      console.warn(
+        "Firebase env warning: FIREBASE_SERVICE_ACCOUNT_BASE64 currently contains a database URL. It will be used as FIREBASE_DATABASE_URL, but the Firebase bridge still needs a real service account."
+      );
+    }
+
+    if (SERVICE_ACCOUNT_BASE64_ENV && !MISPLACED_DATABASE_URL) {
+      return normalizeServiceAccount(decodeServiceAccountBase64(SERVICE_ACCOUNT_BASE64_ENV));
     }
 
     if (process.env.FIREBASE_SERVICE_ACCOUNT) {

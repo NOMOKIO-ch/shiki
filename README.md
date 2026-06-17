@@ -34,6 +34,19 @@ To create `FIREBASE_SERVICE_ACCOUNT_BASE64` on Windows PowerShell:
 
 Paste the whole output into Wispbyte. Do not paste only the `private_key` value.
 
+Wrong:
+
+```env
+FIREBASE_SERVICE_ACCOUNT_BASE64=https://namez-base-default-rtdb.firebaseio.com/
+```
+
+Correct:
+
+```env
+FIREBASE_DATABASE_URL=https://namez-base-default-rtdb.firebaseio.com
+FIREBASE_SERVICE_ACCOUNT_BASE64=ewogICJ0eXBlIjogInNlcnZpY2VfYWNjb3VudCIs...
+```
+
 ## Discord requirements
 
 Enable these bot permissions/intents:
