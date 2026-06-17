@@ -307,6 +307,12 @@ function normalizeServiceAccount(jsonText) {
 
 function parseFirebaseServiceAccount() {
   try {
+    if (process.env.FIREBASE_SERVICE_ACCOUNT_FILE) {
+      const serviceAccountPath = stripWrappingQuotes(process.env.FIREBASE_SERVICE_ACCOUNT_FILE);
+      const serviceAccountJson = fs.readFileSync(serviceAccountPath, "utf8");
+      return normalizeServiceAccount(serviceAccountJson);
+    }
+
     if (MISPLACED_DATABASE_URL) {
       console.warn(
         "Firebase env warning: FIREBASE_SERVICE_ACCOUNT_BASE64 currently contains a database URL. It will be used as FIREBASE_DATABASE_URL, but the Firebase bridge still needs a real service account."
@@ -334,7 +340,7 @@ function startFirebaseBridge() {
   const serviceAccount = parseFirebaseServiceAccount();
   if (!serviceAccount) {
     console.log(
-      "Firebase bridge disabled: set FIREBASE_SERVICE_ACCOUNT_BASE64 or FIREBASE_SERVICE_ACCOUNT in the host environment."
+      "Firebase bridge disabled: set FIREBASE_SERVICE_ACCOUNT_BASE64, FIREBASE_SERVICE_ACCOUNT, or FIREBASE_SERVICE_ACCOUNT_FILE in the host environment."
     );
     return;
   }

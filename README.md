@@ -47,6 +47,12 @@ FIREBASE_DATABASE_URL=https://namez-base-default-rtdb.firebaseio.com
 FIREBASE_SERVICE_ACCOUNT_BASE64=ewogICJ0eXBlIjogInNlcnZpY2VfYWNjb3VudCIs...
 ```
 
+For local testing only, you can point directly to the downloaded JSON file instead of converting it:
+
+```env
+FIREBASE_SERVICE_ACCOUNT_FILE=C:\Users\windows\Downloads\namez-base-firebase-adminsdk-fbsvc-abdbab0c6c.json
+```
+
 ## Discord requirements
 
 Enable these bot permissions/intents:
