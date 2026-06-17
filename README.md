@@ -22,6 +22,9 @@ FIREBASE_SERVICE_ACCOUNT_BASE64=
 ```
 
 Use `FIREBASE_SERVICE_ACCOUNT_BASE64` on hosting panels because it avoids multiline private-key issues.
+`FIREBASE_DATABASE_URL` already defaults to `https://namez-base-default-rtdb.firebaseio.com`, so the service account is the important missing value when the bridge says it is disabled.
+
+This patch pins `firebase-admin` to `12.7.0` so hosts running Node 19 do not receive Firebase `EBADENGINE` warnings that require Node 20.
 
 ## Discord requirements
 

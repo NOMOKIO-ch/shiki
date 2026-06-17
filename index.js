@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-dotenv.config();
+dotenv.config({ quiet: true });
 
 import fs from "fs";
 import {
@@ -9,6 +9,7 @@ import {
   ChannelType,
   Client,
   EmbedBuilder,
+  Events,
   GatewayIntentBits,
   PermissionFlagsBits,
   REST,
@@ -24,6 +25,8 @@ const CONFIG_FILE = "./config.json";
 const MAX_FORM_FIELDS = 20;
 const DEFAULT_COLOR = "#00D1FF";
 const FORM_BASE_URL = (process.env.FORM_BASE_URL || "https://roleplayfrom.vercel.app").replace(/\/$/, "");
+const FIREBASE_DATABASE_URL =
+  process.env.FIREBASE_DATABASE_URL || "https://namez-base-default-rtdb.firebaseio.com";
 const PORT = Number(process.env.PORT || 10000);
 
 const formOrigin = (() => {
@@ -261,21 +264,18 @@ function parseFirebaseServiceAccount() {
 }
 
 function startFirebaseBridge() {
-  if (!process.env.FIREBASE_DATABASE_URL) {
-    console.log("Firebase bridge disabled: FIREBASE_DATABASE_URL is not set.");
-    return;
-  }
-
   const serviceAccount = parseFirebaseServiceAccount();
   if (!serviceAccount) {
-    console.log("Firebase bridge disabled: service account env is not set.");
+    console.log(
+      "Firebase bridge disabled: set FIREBASE_SERVICE_ACCOUNT_BASE64 or FIREBASE_SERVICE_ACCOUNT in the host environment."
+    );
     return;
   }
 
   if (!getApps().length) {
     initializeFirebaseAdmin({
       credential: cert(serviceAccount),
-      databaseURL: process.env.FIREBASE_DATABASE_URL
+      databaseURL: FIREBASE_DATABASE_URL
     });
   }
 
@@ -910,7 +910,7 @@ async function handlePreviewCommand(interaction, guildConfig) {
   await interaction.reply({ embeds: [embed], ephemeral: true });
 }
 
-client.once("ready", () => {
+client.once(Events.ClientReady, () => {
   startFirebaseBridge();
   console.log(`Bot online as ${client.user.tag}`);
 });

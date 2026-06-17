@@ -1,6 +1,6 @@
 {
   "name": "shikiv4",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Discord bot สำหรับจัดการฟอร์มและประกาศในเซิร์ฟเวอร์",
   "main": "index.js",
   "type": "module",
@@ -25,7 +25,7 @@
     "discord.js": "^14.23.2",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
-    "firebase-admin": "^13.10.0"
+    "firebase-admin": "12.7.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
