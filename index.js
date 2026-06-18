@@ -139,6 +139,42 @@ function cleanString(value, max = 1000) {
   return String(value ?? "").trim().slice(0, max);
 }
 
+function normalizeProjectIdInput(value) {
+  const text = stripWrappingQuotes(cleanString(value, 1000)).replace(/^<|>$/g, "").trim();
+  if (!text) throw new Error("Project ID is required.");
+
+  let projectId = text;
+  const queryMatch = text.match(/[?&]project=([^&#\s]+)/i);
+  if (queryMatch) {
+    projectId = decodeURIComponent(queryMatch[1]);
+  } else {
+    try {
+      const url = new URL(text);
+      projectId = url.searchParams.get("project") || url.searchParams.get("project_id") || "";
+    } catch {
+      projectId = text;
+    }
+  }
+
+  projectId = stripWrappingQuotes(projectId).trim();
+  if (!projectId) throw new Error("Project URL does not contain a project query value.");
+  if (projectId.length > 160) throw new Error("Project ID is too long.");
+  if (/[.#$\[\]/]/.test(projectId) || /[\x00-\x1f\x7f]/.test(projectId)) {
+    throw new Error("Project ID contains invalid Firebase path characters. Paste only the value after ?project=.");
+  }
+
+  return projectId;
+}
+
+function normalizeStoredProjectId(value) {
+  if (!value) return null;
+  try {
+    return normalizeProjectIdInput(value);
+  } catch {
+    return null;
+  }
+}
+
 function isUrl(value) {
   return /^https?:\/\/\S+$/i.test(String(value || "").trim());
 }
@@ -180,7 +216,7 @@ function normalizeGuildConfig(raw = {}) {
   const defaults = defaultGuildConfig();
 
   return {
-    projectId: cleanString(raw.projectId || "", 160) || null,
+    projectId: normalizeStoredProjectId(raw.projectId),
     roleToGive: cleanString(raw.roleToGive || "", 32) || null,
     summary: mergeEmbedSection(defaults.summary, raw.summary, {
       channelId: raw.summaryChannel,
@@ -697,7 +733,7 @@ function buildCommands() {
         .setName("project")
         .setDescription("Link this Discord server to a website project")
         .addStringOption((option) =>
-          option.setName("project_id").setDescription("Project ID from the website editor URL").setRequired(true)
+          option.setName("project_id").setDescription("Project ID, public form URL, or editor URL").setRequired(true)
         )
     )
     .addSubcommand((subcommand) =>
@@ -853,7 +889,7 @@ async function handleFormCommand(interaction, guildConfig) {
 
   if (subcommand === "project") {
     await interaction.deferReply({ ephemeral: true });
-    const projectId = interaction.options.getString("project_id").trim();
+    const projectId = normalizeProjectIdInput(interaction.options.getString("project_id"));
     await assertProjectBelongsToGuild(projectId, interaction.guildId);
     guildConfig.projectId = projectId;
     saveConfig();
@@ -1038,7 +1074,8 @@ app.get("/", (req, res) => {
 app.post("/submit", async (req, res) => {
   try {
     const data = req.body || {};
-    const projectId = cleanString(data.project_id || data.projectId || "", 160) || null;
+    const rawProjectId = data.project_id || data.projectId || "";
+    const projectId = rawProjectId ? normalizeProjectIdInput(rawProjectId) : null;
     const guildId = cleanString(data.guild_id || data.guildId || "", 32) || (projectId ? await resolveGuildForProject(projectId) : null);
 
     if (!guildId || !config[guildId]) {

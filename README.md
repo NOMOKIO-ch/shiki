@@ -66,7 +66,7 @@ Enable these bot permissions/intents:
 ## Main slash commands
 
 ```text
-/form project project_id:<website-project-id>
+/form project project_id:<website-project-id-or-form-url>
 /form summary channel:#summary template:<message> title:<title> color:#00D1FF
 /form announce channel:#forms title:<title> description:<message> button_label:<label> send_now:true
 /form send
@@ -125,3 +125,10 @@ Website submissions are written as:
 ```
 
 The bot changes `status` to `processing`, then `sent` or `error`.
+
+`/form project` accepts either the raw project ID or a full website URL:
+
+```text
+/form project project_id:742f3ecd-a3b2-4a9f-8eef-0a044bb6b51e
+/form project project_id:https://roleplayfrom.vercel.app/form.html?project=742f3ecd-a3b2-4a9f-8eef-0a044bb6b51e
+```
