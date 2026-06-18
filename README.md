@@ -77,6 +77,8 @@ Enable these bot permissions/intents:
 /goodbye setup channel:#goodbye title:<title> description:<message> enabled:true
 /goodbye test
 /goodbye disable
+/embed preset target:<form|summary|welcome|goodbye> style:<mimu|neon|clean|simple>
+/embed placeholders target:<form|summary|welcome|goodbye>
 /bot settings
 /bot reset target:<all|form|summary|welcome|goodbye>
 /preview target:<form|summary|welcome|goodbye>

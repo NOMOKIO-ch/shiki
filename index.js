@@ -35,6 +35,14 @@ const FIREBASE_DATABASE_URL =
   (process.env.FIREBASE_DATABASE_URL || MISPLACED_DATABASE_URL || DEFAULT_FIREBASE_DATABASE_URL).replace(/\/$/, "");
 const PORT = Number(process.env.PORT || 10000);
 
+const summaryTemplateAll = () =>
+  [
+    "Applicant: {user_mb}",
+    "Submitted: {timing}",
+    "",
+    ...Array.from({ length: MAX_FORM_FIELDS }, (_, index) => `${index + 1}. {${index + 1}}`)
+  ].join("\n");
+
 const formOrigin = (() => {
   try {
     return new URL(FORM_BASE_URL).origin;
@@ -96,7 +104,7 @@ function defaultGuildConfig() {
     summary: {
       channelId: null,
       title: "New form submission",
-      template: "Applicant: {user_mb}\nSubmitted: {timing}\n\n1. {1}\n2. {2}\n3. {3}",
+      template: summaryTemplateAll(),
       color: DEFAULT_COLOR,
       image: "",
       thumbnail: "",
@@ -293,6 +301,92 @@ function buildEmbed(section, replacements = {}, fallbackDescription = "") {
   setOptionalImage(embed, embed.setThumbnail, thumbnail);
 
   return embed;
+}
+
+function sectionForTarget(guildConfig, target) {
+  if (target === "form") return guildConfig.formAnnounce;
+  if (target === "summary") return guildConfig.summary;
+  if (target === "welcome") return guildConfig.welcome;
+  if (target === "goodbye") return guildConfig.goodbye;
+  throw new Error("Unknown embed target.");
+}
+
+function presetForTarget(target, style) {
+  const colors = {
+    mimu: "#FF8AC8",
+    neon: "#00D1FF",
+    clean: "#7DD3FC",
+    simple: "#B8C1EC"
+  };
+  const color = colors[style] || DEFAULT_COLOR;
+  const common = {
+    color,
+    image: "",
+    thumbnail: target === "welcome" || target === "goodbye" ? "{user_avatar}" : "",
+    footer: style === "mimu" ? "{server} | {time}" : "{time}"
+  };
+
+  if (target === "welcome") {
+    return {
+      ...common,
+      enabled: true,
+      title: style === "simple" ? "Welcome" : "Welcome {user}",
+      description:
+        style === "neon"
+          ? "**{user} joined {server}**\nUser ID: `{user_id}`"
+          : "Welcome to **{server}**, {user}.",
+      footer: "User ID: {user_id} | {time}"
+    };
+  }
+
+  if (target === "goodbye") {
+    return {
+      ...common,
+      enabled: true,
+      title: style === "simple" ? "Goodbye" : "Goodbye {user}",
+      description:
+        style === "neon"
+          ? "**{user} left {server}**\nUser ID: `{user_id}`"
+          : "{user} left **{server}**.",
+      footer: "User ID: {user_id} | {time}"
+    };
+  }
+
+  if (target === "form") {
+    return {
+      ...common,
+      title: style === "simple" ? "Application Form" : "Application Form - {time}",
+      description:
+        style === "mimu"
+          ? "กดปุ่มด้านล่างเพื่อกรอกฟอร์ม\n\n{form_url}"
+          : "Open the form below and submit your application.",
+      buttonLabel: style === "simple" ? "Open" : "Open form",
+      footer: "Love Form Studio | {time}"
+    };
+  }
+
+  return {
+    ...common,
+    title: style === "simple" ? "New submission" : "New form submission",
+    template:
+      style === "clean"
+        ? "Applicant: {user_mb}\nSubmitted: {timing}\n\n{1}\n{2}\n{3}\n{4}\n{5}"
+        : summaryTemplateAll(),
+    footer: "Love Form Studio"
+  };
+}
+
+function applyEmbedPreset(guildConfig, target, style, channelId = null) {
+  const section = sectionForTarget(guildConfig, target);
+  Object.assign(section, presetForTarget(target, style));
+  if (channelId) section.channelId = channelId;
+  return section;
+}
+
+function placeholdersForTarget(target) {
+  if (target === "summary") return "{1} through {20}, {user_mb}, {timing}";
+  if (target === "form") return "{form_url}, {time}";
+  return "{user}, {time}, {user_avatar}, {user_id}, {server}";
 }
 
 function stripWrappingQuotes(value) {
@@ -522,9 +616,10 @@ async function buildSummaryEmbed(guildConfig, projectId, record) {
   const project = await getProject(projectId);
   const questions = normalizeQuestions(project?.form);
   const context = summaryContext(record, questions);
+  const hasCustomBody = Boolean(cleanString(guildConfig.summary.description || guildConfig.summary.template, 4000));
   const embed = buildEmbed(guildConfig.summary, context.replacements, "New form submission");
 
-  if (context.fields.length) {
+  if (!hasCustomBody && context.fields.length) {
     embed.addFields(context.fields);
   } else if (!embed.data.description) {
     embed.setDescription("No answers were found in this submission.");
@@ -788,6 +883,68 @@ function buildCommands() {
     .addSubcommand((subcommand) => subcommand.setName("test").setDescription("Preview the goodbye embed"))
     .addSubcommand((subcommand) => subcommand.setName("disable").setDescription("Disable goodbye messages"));
 
+  const embedCommand = new SlashCommandBuilder()
+    .setName("embed")
+    .setDescription("Apply ready-made embed presets")
+    .setDefaultMemberPermissions(manage)
+    .setDMPermission(false)
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("preset")
+        .setDescription("Apply a clean preset to an embed target")
+        .addStringOption((option) =>
+          option
+            .setName("target")
+            .setDescription("Embed target")
+            .setRequired(true)
+            .addChoices(
+              { name: "form", value: "form" },
+              { name: "summary", value: "summary" },
+              { name: "welcome", value: "welcome" },
+              { name: "goodbye", value: "goodbye" }
+            )
+        )
+        .addStringOption((option) =>
+          option
+            .setName("style")
+            .setDescription("Preset style")
+            .setRequired(true)
+            .addChoices(
+              { name: "mimu", value: "mimu" },
+              { name: "neon", value: "neon" },
+              { name: "clean", value: "clean" },
+              { name: "simple", value: "simple" }
+            )
+        )
+        .addChannelOption((option) =>
+          option
+            .setName("channel")
+            .setDescription("Optional target channel")
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(false)
+        )
+        .addBooleanOption((option) =>
+          option.setName("preview").setDescription("Show a private preview after saving").setRequired(false)
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("placeholders")
+        .setDescription("Show placeholders for an embed target")
+        .addStringOption((option) =>
+          option
+            .setName("target")
+            .setDescription("Embed target")
+            .setRequired(true)
+            .addChoices(
+              { name: "form", value: "form" },
+              { name: "summary", value: "summary" },
+              { name: "welcome", value: "welcome" },
+              { name: "goodbye", value: "goodbye" }
+            )
+        )
+    );
+
   const botCommand = new SlashCommandBuilder()
     .setName("bot")
     .setDescription("View or reset bot settings")
@@ -831,7 +988,7 @@ function buildCommands() {
         )
     );
 
-  return [formCommand, welcomeCommand, goodbyeCommand, botCommand, previewCommand].map((command) => command.toJSON());
+  return [formCommand, welcomeCommand, goodbyeCommand, embedCommand, botCommand, previewCommand].map((command) => command.toJSON());
 }
 
 async function registerCommands() {
@@ -989,9 +1146,7 @@ async function handleBotCommand(interaction, guildConfig) {
   }
 }
 
-async function handlePreviewCommand(interaction, guildConfig) {
-  const target = interaction.options.getString("target");
-
+async function previewPayloadForTarget(target, guildConfig, interaction) {
   if (target === "form") {
     const formUrl = getFormUrl(guildConfig.projectId);
     const embed = buildEmbed(guildConfig.formAnnounce, {
@@ -1004,8 +1159,7 @@ async function handlePreviewCommand(interaction, guildConfig) {
         .setStyle(ButtonStyle.Link)
         .setURL(formUrl)
     );
-    await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
-    return;
+    return { embeds: [embed], components: [row] };
   }
 
   if (target === "summary") {
@@ -1014,13 +1168,52 @@ async function handlePreviewCommand(interaction, guildConfig) {
       answers: Object.fromEntries(Array.from({ length: MAX_FORM_FIELDS }, (_, index) => [`q${index + 1}`, `Sample answer ${index + 1}`]))
     };
     const { embed } = await buildSummaryEmbed(guildConfig, guildConfig.projectId, record);
-    await interaction.reply({ embeds: [embed], ephemeral: true });
-    return;
+    return { embeds: [embed] };
   }
 
   const member = await interactionGuildMember(interaction);
   const embed = buildEmbed(guildConfig[target], memberReplacements(member));
-  await interaction.reply({ embeds: [embed], ephemeral: true });
+  return { embeds: [embed] };
+}
+
+async function handleEmbedCommand(interaction, guildConfig) {
+  const subcommand = interaction.options.getSubcommand();
+
+  if (subcommand === "placeholders") {
+    const target = interaction.options.getString("target");
+    await interaction.reply({
+      content: `Placeholders for \`${target}\`: ${placeholdersForTarget(target)}`,
+      ephemeral: true
+    });
+    return;
+  }
+
+  const target = interaction.options.getString("target");
+  const style = interaction.options.getString("style");
+  const channel = interaction.options.getChannel("channel");
+  applyEmbedPreset(guildConfig, target, style, channel?.id || null);
+  saveConfig();
+
+  if (interaction.options.getBoolean("preview")) {
+    const payload = await previewPayloadForTarget(target, guildConfig, interaction);
+    await interaction.reply({
+      content: `Applied \`${style}\` preset to \`${target}\`.`,
+      ...payload,
+      ephemeral: true
+    });
+    return;
+  }
+
+  await interaction.reply({
+    content: `Applied \`${style}\` preset to \`${target}\`. Use /preview target:${target} to inspect it.`,
+    ephemeral: true
+  });
+}
+
+async function handlePreviewCommand(interaction, guildConfig) {
+  const target = interaction.options.getString("target");
+  const payload = await previewPayloadForTarget(target, guildConfig, interaction);
+  await interaction.reply({ ...payload, ephemeral: true });
 }
 
 client.once(Events.ClientReady, () => {
@@ -1048,6 +1241,8 @@ client.on("interactionCreate", async (interaction) => {
       await handleMemberEmbedCommand(interaction, guildConfig, "welcome");
     } else if (interaction.commandName === "goodbye") {
       await handleMemberEmbedCommand(interaction, guildConfig, "goodbye");
+    } else if (interaction.commandName === "embed") {
+      await handleEmbedCommand(interaction, guildConfig);
     } else if (interaction.commandName === "bot") {
       await handleBotCommand(interaction, guildConfig);
     } else if (interaction.commandName === "preview") {
