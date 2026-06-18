@@ -11,10 +11,13 @@ import {
   EmbedBuilder,
   Events,
   GatewayIntentBits,
+  ModalBuilder,
   PermissionFlagsBits,
   REST,
   Routes,
-  SlashCommandBuilder
+  SlashCommandBuilder,
+  TextInputBuilder,
+  TextInputStyle
 } from "discord.js";
 import express from "express";
 import cors from "cors";
@@ -40,8 +43,11 @@ const summaryTemplateAll = () =>
     "Applicant: {user_mb}",
     "Submitted: {timing}",
     "",
-    ...Array.from({ length: MAX_FORM_FIELDS }, (_, index) => `${index + 1}. {${index + 1}}`)
+    "{answers}"
   ].join("\n");
+
+const EMBED_TARGETS = ["form", "summary", "welcome", "goodbye"];
+const MEMBER_EMBED_TARGETS = new Set(["welcome", "goodbye"]);
 
 const formOrigin = (() => {
   try {
@@ -370,7 +376,7 @@ function presetForTarget(target, style) {
     title: style === "simple" ? "New submission" : "New form submission",
     template:
       style === "clean"
-        ? "Applicant: {user_mb}\nSubmitted: {timing}\n\n{1}\n{2}\n{3}\n{4}\n{5}"
+        ? "Applicant: {user_mb}\nSubmitted: {timing}\n\n{answers_named}"
         : summaryTemplateAll(),
     footer: "Love Form Studio"
   };
@@ -384,9 +390,185 @@ function applyEmbedPreset(guildConfig, target, style, channelId = null) {
 }
 
 function placeholdersForTarget(target) {
-  if (target === "summary") return "{1} through {20}, {user_mb}, {timing}";
+  if (target === "summary") return "{answers}, {answers_named}, {1} through {20}, {user_mb}, {timing}";
   if (target === "form") return "{form_url}, {time}";
   return "{user}, {time}, {user_avatar}, {user_id}, {server}";
+}
+
+function assertEmbedTarget(target) {
+  if (!EMBED_TARGETS.includes(target)) throw new Error("Unknown embed target.");
+  return target;
+}
+
+function assertManageGuild(interaction) {
+  if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+    throw new Error("You need Manage Server permission to edit bot embeds.");
+  }
+}
+
+function validateHexColorInput(value, fallback) {
+  const color = cleanString(value, 24);
+  if (!color) return fallback;
+  if (!/^#[0-9a-f]{6}$/i.test(color)) throw new Error("Hex color must look like #00D1FF.");
+  return color.toUpperCase();
+}
+
+function parseEnabledInput(value, fallback) {
+  const text = cleanString(value, 24).toLowerCase();
+  if (!text) return fallback;
+  if (["true", "on", "yes", "enable", "enabled", "1"].includes(text)) return true;
+  if (["false", "off", "no", "disable", "disabled", "0"].includes(text)) return false;
+  throw new Error("Enabled must be true/false, on/off, yes/no, or 1/0.");
+}
+
+function textInput(id, label, value, style = TextInputStyle.Short, maxLength = 1000, placeholder = "") {
+  const input = new TextInputBuilder()
+    .setCustomId(id)
+    .setLabel(label)
+    .setStyle(style)
+    .setRequired(false)
+    .setMaxLength(maxLength);
+
+  const currentValue = cleanString(value, maxLength);
+  if (currentValue) input.setValue(currentValue);
+  if (placeholder) input.setPlaceholder(placeholder.slice(0, 100));
+  return input;
+}
+
+function modalRow(input) {
+  return new ActionRowBuilder().addComponents(input);
+}
+
+function buildEmbedEditorModal(target, panel, section) {
+  assertEmbedTarget(target);
+  const modal = new ModalBuilder()
+    .setCustomId(`embedmodal:${target}:${panel}`)
+    .setTitle(`Edit ${target}: ${panel}`);
+
+  if (panel === "basic") {
+    modal.addComponents(
+      modalRow(textInput("title", "Title", section.title, TextInputStyle.Short, 256, "Embed title")),
+      modalRow(textInput("color", "Hex Color", section.color, TextInputStyle.Short, 24, "#00D1FF"))
+    );
+
+    if (target === "form") {
+      modal.addComponents(
+        modalRow(textInput("button_label", "Button Label", section.buttonLabel, TextInputStyle.Short, 80, "Open form"))
+      );
+    }
+
+    return modal;
+  }
+
+  if (panel === "body") {
+    const body = target === "summary" ? section.description || section.template : section.description;
+    modal.addComponents(
+      modalRow(
+        textInput(
+          "body",
+          target === "summary" ? "Summary Template" : "Description",
+          body,
+          TextInputStyle.Paragraph,
+          4000,
+          placeholdersForTarget(target)
+        )
+      )
+    );
+    return modal;
+  }
+
+  if (panel === "images") {
+    modal.addComponents(
+      modalRow(textInput("image", "Image URL", section.image, TextInputStyle.Short, 700, "https://...")),
+      modalRow(textInput("thumbnail", "Thumbnail URL", section.thumbnail, TextInputStyle.Short, 700, "{user_avatar}"))
+    );
+    return modal;
+  }
+
+  if (panel === "footer") {
+    modal.addComponents(
+      modalRow(textInput("footer", "Footer", section.footer, TextInputStyle.Paragraph, 2048, placeholdersForTarget(target)))
+    );
+    return modal;
+  }
+
+  if (panel === "target") {
+    modal.addComponents(
+      modalRow(textInput("channel_id", "Channel ID", section.channelId || "", TextInputStyle.Short, 32, "Paste channel ID"))
+    );
+
+    if (MEMBER_EMBED_TARGETS.has(target)) {
+      modal.addComponents(
+        modalRow(textInput("enabled", "Enabled", section.enabled ? "true" : "false", TextInputStyle.Short, 24, "true / false"))
+      );
+    }
+
+    return modal;
+  }
+
+  throw new Error("Unknown editor panel.");
+}
+
+function editorButton(target, panel, label, style = ButtonStyle.Secondary) {
+  return new ButtonBuilder()
+    .setCustomId(`embededit:${target}:${panel}`)
+    .setLabel(label)
+    .setStyle(style);
+}
+
+function embedEditorRows(target, section) {
+  const rows = [
+    new ActionRowBuilder().addComponents(
+      editorButton(target, "basic", "Basic", ButtonStyle.Primary),
+      editorButton(target, "body", "Body"),
+      editorButton(target, "images", "Images"),
+      editorButton(target, "footer", "Footer"),
+      editorButton(target, "target", "Target")
+    )
+  ];
+
+  const secondRow = new ActionRowBuilder().addComponents(
+    editorButton(target, "refresh", "Refresh", ButtonStyle.Secondary)
+  );
+
+  if (MEMBER_EMBED_TARGETS.has(target)) {
+    secondRow.addComponents(
+      editorButton(target, "toggle", section.enabled ? "Disable" : "Enable", section.enabled ? ButtonStyle.Danger : ButtonStyle.Success)
+    );
+  }
+
+  rows.push(secondRow);
+  return rows;
+}
+
+async function embedEditorPayload(target, guildConfig, interaction, notice = "") {
+  assertEmbedTarget(target);
+  const section = sectionForTarget(guildConfig, target);
+  const preview = await previewPayloadForTarget(target, guildConfig, interaction);
+  const targetChannel = section.channelId ? `<#${section.channelId}>` : "Not set";
+  const enabledText = MEMBER_EMBED_TARGETS.has(target) ? (section.enabled ? "Enabled" : "Disabled") : "Always available";
+  const status = new EmbedBuilder()
+    .setTitle(`Editing: ${target}`)
+    .setColor(safeColor(section.color))
+    .setDescription(`Use the buttons below to edit this embed with popup forms.\nPlaceholders: ${placeholdersForTarget(target)}`)
+    .addFields(
+      { name: "Target channel", value: targetChannel, inline: true },
+      { name: "Status", value: enabledText, inline: true },
+      { name: "Color", value: safeColor(section.color), inline: true }
+    );
+
+  return {
+    content: notice || `Editing \`${target}\` embed.`,
+    embeds: [status, ...(preview.embeds || [])],
+    components: embedEditorRows(target, section),
+    ephemeral: true
+  };
+}
+
+function stripEphemeral(payload) {
+  const next = { ...payload };
+  delete next.ephemeral;
+  return next;
 }
 
 function stripWrappingQuotes(value) {
@@ -522,6 +704,7 @@ function submissionAnswers(record = {}) {
   const ignoredKeys = new Set([
     "answers",
     "captchaChecked",
+    "challengeChecked",
     "createdAt",
     "error",
     "failedAt",
@@ -536,7 +719,7 @@ function submissionAnswers(record = {}) {
   return Object.fromEntries(
     Object.entries(source)
       .filter(([key]) => !ignoredKeys.has(key))
-      .map(([key, value]) => [cleanString(key, 80), cleanString(value, 1000) || "Not provided"])
+      .map(([key, value]) => [cleanString(key, 80), cleanString(value, 1000)])
   );
 }
 
@@ -556,7 +739,7 @@ function answerByQuestion(answers, question, index) {
     if (match && cleanString(match[1])) return cleanString(match[1], 1000);
   }
 
-  return "Not provided";
+  return "";
 }
 
 function findSubmitter(answers, questions) {
@@ -568,7 +751,7 @@ function findSubmitter(answers, questions) {
     const value = answerByQuestion(answers, preferred, questions.indexOf(preferred));
     const snowflake = extractSnowflake(value);
     if (snowflake) return `<@${snowflake}>`;
-    if (value !== "Not provided") return value;
+    if (value) return value;
   }
 
   for (const value of Object.values(answers)) {
@@ -576,7 +759,25 @@ function findSubmitter(answers, questions) {
     if (snowflake) return `<@${snowflake}>`;
   }
 
-  return "Not provided";
+  return "Unknown user";
+}
+
+function collapseBlankLines(text) {
+  return cleanString(text, 4000)
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line, index, lines) => line.trim() || (index > 0 && index < lines.length - 1 && lines[index - 1].trim()))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function renderSummaryTemplate(template, replacements, missingAnswerTokens) {
+  const lines = cleanString(template, 4000)
+    .split(/\r?\n/)
+    .filter((line) => !missingAnswerTokens.some((token) => line.includes(token)));
+
+  return collapseBlankLines(lines.join("\n").replace(/\{[^}]+\}/g, (token) => replacements[token] ?? token));
 }
 
 function summaryContext(record, questions) {
@@ -595,21 +796,41 @@ function summaryContext(record, questions) {
     "{time}": discordTime(record.createdAt || Date.now())
   };
 
-  const fields = fallbackQuestions.slice(0, MAX_FORM_FIELDS).map((question, index) => {
+  const answerItems = [];
+  const missingAnswerTokens = [];
+
+  fallbackQuestions.slice(0, MAX_FORM_FIELDS).forEach((question, index) => {
     const value = answerByQuestion(answers, question, index);
     replacements[`{${index + 1}}`] = value;
-    return {
-      name: `${index + 1}. ${question.label}`.slice(0, 256),
-      value: value.slice(0, 1024),
-      inline: false
-    };
+    if (!value) {
+      missingAnswerTokens.push(`{${index + 1}}`);
+      return;
+    }
+
+    answerItems.push({
+      number: index + 1,
+      label: question.label,
+      value
+    });
   });
 
-  for (let index = fields.length; index < MAX_FORM_FIELDS; index += 1) {
-    replacements[`{${index + 1}}`] = "Not provided";
+  for (let index = fallbackQuestions.length; index < MAX_FORM_FIELDS; index += 1) {
+    replacements[`{${index + 1}}`] = "";
+    missingAnswerTokens.push(`{${index + 1}}`);
   }
 
-  return { replacements, fields, answers };
+  replacements["{answers}"] = answerItems.map((item) => `${item.number}. ${item.value}`).join("\n");
+  replacements["{answers_named}"] = answerItems
+    .map((item) => `**${item.number}. ${item.label}**\n${item.value}`)
+    .join("\n\n");
+
+  const fields = answerItems.map((item) => ({
+    name: `${item.number}. ${item.label}`.slice(0, 256),
+    value: item.value.slice(0, 1024),
+    inline: false
+  }));
+
+  return { replacements, fields, answers, missingAnswerTokens };
 }
 
 async function buildSummaryEmbed(guildConfig, projectId, record) {
@@ -617,7 +838,18 @@ async function buildSummaryEmbed(guildConfig, projectId, record) {
   const questions = normalizeQuestions(project?.form);
   const context = summaryContext(record, questions);
   const hasCustomBody = Boolean(cleanString(guildConfig.summary.description || guildConfig.summary.template, 4000));
-  const embed = buildEmbed(guildConfig.summary, context.replacements, "New form submission");
+  const summarySection = { ...guildConfig.summary };
+  const descriptionSource = summarySection.description || summarySection.template;
+  if (descriptionSource) {
+    summarySection.description = renderSummaryTemplate(
+      descriptionSource,
+      context.replacements,
+      context.missingAnswerTokens
+    );
+    summarySection.template = "";
+  }
+
+  const embed = buildEmbed(summarySection, context.replacements, "New form submission");
 
   if (!hasCustomBody && context.fields.length) {
     embed.addFields(context.fields);
@@ -888,6 +1120,23 @@ function buildCommands() {
     .setDescription("Apply ready-made embed presets")
     .setDefaultMemberPermissions(manage)
     .setDMPermission(false)
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("editor")
+        .setDescription("Open the button and popup embed editor")
+        .addStringOption((option) =>
+          option
+            .setName("target")
+            .setDescription("Embed target")
+            .setRequired(true)
+            .addChoices(
+              { name: "form", value: "form" },
+              { name: "summary", value: "summary" },
+              { name: "welcome", value: "welcome" },
+              { name: "goodbye", value: "goodbye" }
+            )
+        )
+    )
     .addSubcommand((subcommand) =>
       subcommand
         .setName("preset")
@@ -1165,7 +1414,11 @@ async function previewPayloadForTarget(target, guildConfig, interaction) {
   if (target === "summary") {
     const record = {
       createdAt: Date.now(),
-      answers: Object.fromEntries(Array.from({ length: MAX_FORM_FIELDS }, (_, index) => [`q${index + 1}`, `Sample answer ${index + 1}`]))
+      answers: {
+        q1: "Sample answer 1",
+        q2: "Sample answer 2",
+        q3: "64110"
+      }
     };
     const { embed } = await buildSummaryEmbed(guildConfig, guildConfig.projectId, record);
     return { embeds: [embed] };
@@ -1178,6 +1431,13 @@ async function previewPayloadForTarget(target, guildConfig, interaction) {
 
 async function handleEmbedCommand(interaction, guildConfig) {
   const subcommand = interaction.options.getSubcommand();
+
+  if (subcommand === "editor") {
+    const target = assertEmbedTarget(interaction.options.getString("target"));
+    const payload = await embedEditorPayload(target, guildConfig, interaction);
+    await interaction.reply(payload);
+    return;
+  }
 
   if (subcommand === "placeholders") {
     const target = interaction.options.getString("target");
@@ -1216,6 +1476,117 @@ async function handlePreviewCommand(interaction, guildConfig) {
   await interaction.reply({ ...payload, ephemeral: true });
 }
 
+async function normalizeEditorChannelId(interaction, rawValue) {
+  const text = cleanString(rawValue, 80);
+  if (!text) return null;
+
+  const channelId = extractSnowflake(text);
+  if (!isSnowflake(channelId)) throw new Error("Channel ID must be a Discord channel ID or channel mention.");
+
+  const channel = await client.channels.fetch(channelId).catch(() => null);
+  if (!channel || channel.guildId !== interaction.guildId) {
+    throw new Error("Channel was not found in this server.");
+  }
+
+  if (![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type)) {
+    throw new Error("Channel must be a text or announcement channel.");
+  }
+
+  return channelId;
+}
+
+async function applyEmbedEditorModal(interaction, target, panel, section) {
+  if (panel === "basic") {
+    section.title = cleanString(interaction.fields.getTextInputValue("title"), 256);
+    section.color = validateHexColorInput(interaction.fields.getTextInputValue("color"), section.color);
+    if (target === "form") {
+      section.buttonLabel = cleanString(interaction.fields.getTextInputValue("button_label"), 80) || "Open form";
+    }
+    return;
+  }
+
+  if (panel === "body") {
+    const body = cleanString(interaction.fields.getTextInputValue("body"), 4000);
+    if (target === "summary") {
+      section.template = body;
+      section.description = "";
+    } else {
+      section.description = body;
+    }
+    return;
+  }
+
+  if (panel === "images") {
+    section.image = cleanString(interaction.fields.getTextInputValue("image"), 700);
+    section.thumbnail = cleanString(interaction.fields.getTextInputValue("thumbnail"), 700);
+    return;
+  }
+
+  if (panel === "footer") {
+    section.footer = cleanString(interaction.fields.getTextInputValue("footer"), 2048);
+    return;
+  }
+
+  if (panel === "target") {
+    section.channelId = await normalizeEditorChannelId(interaction, interaction.fields.getTextInputValue("channel_id"));
+    if (MEMBER_EMBED_TARGETS.has(target)) {
+      section.enabled = parseEnabledInput(interaction.fields.getTextInputValue("enabled"), section.enabled);
+    }
+    return;
+  }
+
+  throw new Error("Unknown editor panel.");
+}
+
+async function handleEmbedEditorButton(interaction) {
+  if (!interaction.customId.startsWith("embededit:")) return false;
+  assertManageGuild(interaction);
+
+  const [, rawTarget, action] = interaction.customId.split(":");
+  const target = assertEmbedTarget(rawTarget);
+  const guildConfig = ensureGuildConfig(interaction.guildId);
+  const section = sectionForTarget(guildConfig, target);
+
+  if (["basic", "body", "images", "footer", "target"].includes(action)) {
+    await interaction.showModal(buildEmbedEditorModal(target, action, section));
+    return true;
+  }
+
+  if (action === "toggle") {
+    if (!MEMBER_EMBED_TARGETS.has(target)) throw new Error("Only welcome and goodbye embeds can be enabled or disabled.");
+    section.enabled = !section.enabled;
+    saveConfig();
+    const payload = await embedEditorPayload(target, guildConfig, interaction, `${target} is now ${section.enabled ? "enabled" : "disabled"}.`);
+    await interaction.update(stripEphemeral(payload));
+    return true;
+  }
+
+  if (action === "refresh") {
+    const payload = await embedEditorPayload(target, guildConfig, interaction, `Refreshed \`${target}\` preview.`);
+    await interaction.update(stripEphemeral(payload));
+    return true;
+  }
+
+  throw new Error("Unknown editor action.");
+}
+
+async function handleEmbedEditorModal(interaction) {
+  if (!interaction.customId.startsWith("embedmodal:")) return false;
+  assertManageGuild(interaction);
+
+  const [, rawTarget, panel] = interaction.customId.split(":");
+  const target = assertEmbedTarget(rawTarget);
+  const guildConfig = ensureGuildConfig(interaction.guildId);
+  const section = sectionForTarget(guildConfig, target);
+
+  await applyEmbedEditorModal(interaction, target, panel, section);
+  saveConfig();
+
+  const payload = await embedEditorPayload(target, guildConfig, interaction, `Saved \`${panel}\` settings for \`${target}\`.`);
+  await interaction.reply(payload);
+  return true;
+}
+
 client.once(Events.ClientReady, () => {
   startFirebaseBridge();
   console.log(`Bot online as ${client.user.tag}`);
@@ -1230,9 +1601,19 @@ client.on("guildMemberRemove", (member) => {
 });
 
 client.on("interactionCreate", async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-
   try {
+    if (interaction.isButton()) {
+      await handleEmbedEditorButton(interaction);
+      return;
+    }
+
+    if (interaction.isModalSubmit()) {
+      await handleEmbedEditorModal(interaction);
+      return;
+    }
+
+    if (!interaction.isChatInputCommand()) return;
+
     const guildConfig = ensureGuildConfig(interaction.guildId);
 
     if (interaction.commandName === "form") {

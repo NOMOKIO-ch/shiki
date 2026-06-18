@@ -77,6 +77,7 @@ Enable these bot permissions/intents:
 /goodbye setup channel:#goodbye title:<title> description:<message> enabled:true
 /goodbye test
 /goodbye disable
+/embed editor target:<form|summary|welcome|goodbye>
 /embed preset target:<form|summary|welcome|goodbye> style:<mimu|neon|clean|simple>
 /embed placeholders target:<form|summary|welcome|goodbye>
 /bot settings
@@ -99,10 +100,14 @@ Welcome and goodbye embeds:
 Summary embeds:
 
 ```text
+{answers}
+{answers_named}
 {1} ... {20}
 {user_mb}
 {timing}
 ```
+
+`{answers}` only renders submitted answers. Empty or missing answers are skipped.
 
 Form announcement embeds:
 
