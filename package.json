@@ -1,7 +1,7 @@
 {
   "name": "shikiv4",
-  "version": "1.0.8",
-  "description": "Discord bot สำหรับจัดการฟอร์มและประกาศในเซิร์ฟเวอร์",
+  "version": "1.0.9",
+  "description": "บอทจิ้งจอกเฟมบอยน่ารัก ใจดี ร่าเริง สำหรับจัดการฟอร์มและ embed ใน Discord",
   "main": "index.js",
   "type": "module",
   "scripts": {

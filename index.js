@@ -37,13 +37,15 @@ const MISPLACED_DATABASE_URL =
 const FIREBASE_DATABASE_URL =
   (process.env.FIREBASE_DATABASE_URL || MISPLACED_DATABASE_URL || DEFAULT_FIREBASE_DATABASE_URL).replace(/\/$/, "");
 const PORT = Number(process.env.PORT || 10000);
+const BOT_DISPLAY_NAME = "ชิกิ";
+const BOT_PERSONA = "จิ้งจอกเฟมบอย น่ารัก ใจดี ร่าเริง";
 
 const summaryTemplateAll = () =>
   [
-    "Applicant: {user_mb}",
-    "Submitted: {timing}",
+    "ผู้กรอก: {user_mb}",
+    "ส่งเมื่อ: {timing}",
     "",
-    "{answers}"
+    ...Array.from({ length: MAX_FORM_FIELDS }, (_, index) => `${index + 1}. {${index + 1}}`)
   ].join("\n");
 
 const EMBED_TARGETS = ["form", "summary", "welcome", "goodbye"];
@@ -109,42 +111,42 @@ function defaultGuildConfig() {
     roleToGive: null,
     summary: {
       channelId: null,
-      title: "New form submission",
+      title: "มีฟอร์มใหม่เข้ามาแล้วน้า",
       template: summaryTemplateAll(),
       color: DEFAULT_COLOR,
       image: "",
       thumbnail: "",
-      footer: "Visual summary from Love Form Studio"
+      footer: "สรุปจาก Love Form Studio | {timing}"
     },
     formAnnounce: {
       channelId: null,
-      title: "Application Form",
-      description: "Open the form below and submit your application.",
+      title: "แบบฟอร์มของเซิร์ฟเวอร์",
+      description: "กดปุ่มด้านล่างเพื่อเปิดฟอร์มนะ ชิกิเตรียมไว้ให้แล้ว",
       color: DEFAULT_COLOR,
       image: "",
       thumbnail: "",
       footer: "",
-      buttonLabel: "Open form"
+      buttonLabel: "เปิดฟอร์ม"
     },
     welcome: {
       enabled: false,
       channelId: null,
-      title: "Welcome {user}",
-      description: "Welcome to {server}, {user}.",
+      title: "ยินดีต้อนรับ {user}",
+      description: "ยินดีต้อนรับสู่ **{server}** นะ {user}\nขอให้วันนี้เป็นวันที่สดใสของคุณเลย",
       color: "#00D1FF",
       image: "",
       thumbnail: "{user_avatar}",
-      footer: "User ID: {user_id} | {time}"
+      footer: "ID: {user_id} | {time}"
     },
     goodbye: {
       enabled: false,
       channelId: null,
-      title: "Goodbye {user}",
-      description: "{user} left {server}.",
+      title: "ไว้เจอกันใหม่นะ {user}",
+      description: "{user} ออกจาก **{server}** แล้ว\nชิกิจะคิดถึงนะ",
       color: "#FF6370",
       image: "",
       thumbnail: "{user_avatar}",
-      footer: "User ID: {user_id} | {time}"
+      footer: "ID: {user_id} | {time}"
     }
   };
 }
@@ -155,7 +157,7 @@ function cleanString(value, max = 1000) {
 
 function normalizeProjectIdInput(value) {
   const text = stripWrappingQuotes(cleanString(value, 1000)).replace(/^<|>$/g, "").trim();
-  if (!text) throw new Error("Project ID is required.");
+  if (!text) throw new Error("ต้องใส่ Project ID หรือลิงก์ฟอร์มนะ");
 
   let projectId = text;
   const queryMatch = text.match(/[?&]project=([^&#\s]+)/i);
@@ -171,10 +173,10 @@ function normalizeProjectIdInput(value) {
   }
 
   projectId = stripWrappingQuotes(projectId).trim();
-  if (!projectId) throw new Error("Project URL does not contain a project query value.");
-  if (projectId.length > 160) throw new Error("Project ID is too long.");
+  if (!projectId) throw new Error("ลิงก์นี้ไม่มีค่า project อยู่ใน URL นะ");
+  if (projectId.length > 160) throw new Error("Project ID ยาวเกินไปนะ");
   if (/[.#$\[\]/]/.test(projectId) || /[\x00-\x1f\x7f]/.test(projectId)) {
-    throw new Error("Project ID contains invalid Firebase path characters. Paste only the value after ?project=.");
+    throw new Error("Project ID มีอักขระที่ Firebase ใช้ไม่ได้ วางเฉพาะค่าหลัง ?project= นะ");
   }
 
   return projectId;
@@ -234,7 +236,7 @@ function normalizeGuildConfig(raw = {}) {
     roleToGive: cleanString(raw.roleToGive || "", 32) || null,
     summary: mergeEmbedSection(defaults.summary, raw.summary, {
       channelId: raw.summaryChannel,
-      title: "New form submission",
+      title: "มีฟอร์มใหม่เข้ามาแล้วน้า",
       template: raw.summaryMessage,
       color: raw.embedColor,
       image: raw.embedImage
@@ -251,7 +253,7 @@ function normalizeGuildConfig(raw = {}) {
 }
 
 function ensureGuildConfig(guildId) {
-  if (!guildId) throw new Error("This command must be used inside a server.");
+  if (!guildId) throw new Error("คำสั่งนี้ต้องใช้ในเซิร์ฟเวอร์ Discord นะ");
   config[guildId] = normalizeGuildConfig(config[guildId]);
   return config[guildId];
 }
@@ -275,7 +277,7 @@ function memberReplacements(member) {
     "{time}": discordTime(),
     "{user_avatar}": avatar,
     "{user_id}": member.id,
-    "{server}": member.guild?.name || "this server"
+    "{server}": member.guild?.name || "เซิร์ฟเวอร์นี้"
   };
 }
 
@@ -283,7 +285,7 @@ async function interactionGuildMember(interaction) {
   if (interaction.member?.displayAvatarURL) return interaction.member;
   const member = await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
   if (member) return member;
-  throw new Error("Could not load the command user as a guild member.");
+  throw new Error("ชิกิโหลดข้อมูลสมาชิกของคนใช้คำสั่งไม่สำเร็จนะ");
 }
 
 function setOptionalImage(embed, setter, value) {
@@ -314,7 +316,7 @@ function sectionForTarget(guildConfig, target) {
   if (target === "summary") return guildConfig.summary;
   if (target === "welcome") return guildConfig.welcome;
   if (target === "goodbye") return guildConfig.goodbye;
-  throw new Error("Unknown embed target.");
+  throw new Error("ชิกิหา embed เป้าหมายนี้ไม่เจอนะ");
 }
 
 function presetForTarget(target, style) {
@@ -336,12 +338,12 @@ function presetForTarget(target, style) {
     return {
       ...common,
       enabled: true,
-      title: style === "simple" ? "Welcome" : "Welcome {user}",
+      title: style === "simple" ? "ยินดีต้อนรับ" : "ยินดีต้อนรับ {user}",
       description:
         style === "neon"
-          ? "**{user} joined {server}**\nUser ID: `{user_id}`"
-          : "Welcome to **{server}**, {user}.",
-      footer: "User ID: {user_id} | {time}"
+          ? "**{user} เข้าสู่ {server} แล้ว**\nID: `{user_id}`"
+          : "ยินดีต้อนรับสู่ **{server}** นะ {user}",
+      footer: "ID: {user_id} | {time}"
     };
   }
 
@@ -349,36 +351,36 @@ function presetForTarget(target, style) {
     return {
       ...common,
       enabled: true,
-      title: style === "simple" ? "Goodbye" : "Goodbye {user}",
+      title: style === "simple" ? "ไว้เจอกันใหม่" : "ไว้เจอกันใหม่นะ {user}",
       description:
         style === "neon"
-          ? "**{user} left {server}**\nUser ID: `{user_id}`"
-          : "{user} left **{server}**.",
-      footer: "User ID: {user_id} | {time}"
+          ? "**{user} ออกจาก {server} แล้ว**\nID: `{user_id}`"
+          : "{user} ออกจาก **{server}** แล้ว",
+      footer: "ID: {user_id} | {time}"
     };
   }
 
   if (target === "form") {
     return {
       ...common,
-      title: style === "simple" ? "Application Form" : "Application Form - {time}",
+      title: style === "simple" ? "แบบฟอร์ม" : "แบบฟอร์มของเซิร์ฟเวอร์",
       description:
         style === "mimu"
-          ? "กดปุ่มด้านล่างเพื่อกรอกฟอร์ม\n\n{form_url}"
-          : "Open the form below and submit your application.",
-      buttonLabel: style === "simple" ? "Open" : "Open form",
+          ? "กดปุ่มด้านล่างเพื่อกรอกฟอร์มนะ\n\n{form_url}"
+          : "กดปุ่มด้านล่างเพื่อเปิดแบบฟอร์ม",
+      buttonLabel: style === "simple" ? "เปิด" : "เปิดฟอร์ม",
       footer: "Love Form Studio | {time}"
     };
   }
 
   return {
     ...common,
-    title: style === "simple" ? "New submission" : "New form submission",
+    title: style === "simple" ? "ฟอร์มใหม่" : "มีฟอร์มใหม่เข้ามาแล้วน้า",
     template:
       style === "clean"
-        ? "Applicant: {user_mb}\nSubmitted: {timing}\n\n{answers_named}"
+        ? "ผู้กรอก: {user_mb}\nส่งเมื่อ: {timing}\n\n1. {1}\n2. {2}\n3. {3}\n4. {4}\n5. {5}"
         : summaryTemplateAll(),
-    footer: "Love Form Studio"
+    footer: "Love Form Studio | {timing}"
   };
 }
 
@@ -390,26 +392,26 @@ function applyEmbedPreset(guildConfig, target, style, channelId = null) {
 }
 
 function placeholdersForTarget(target) {
-  if (target === "summary") return "{answers}, {answers_named}, {1} through {20}, {user_mb}, {timing}";
+  if (target === "summary") return "{1} ถึง {20}, {user_mb}, {timing}";
   if (target === "form") return "{form_url}, {time}";
   return "{user}, {time}, {user_avatar}, {user_id}, {server}";
 }
 
 function assertEmbedTarget(target) {
-  if (!EMBED_TARGETS.includes(target)) throw new Error("Unknown embed target.");
+  if (!EMBED_TARGETS.includes(target)) throw new Error("ชิกิหา embed เป้าหมายนี้ไม่เจอนะ");
   return target;
 }
 
 function assertManageGuild(interaction) {
   if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
-    throw new Error("You need Manage Server permission to edit bot embeds.");
+    throw new Error("ต้องมีสิทธิ์ Manage Server ก่อนถึงจะแต่ง embed ให้ชิกิได้นะ");
   }
 }
 
 function validateHexColorInput(value, fallback) {
   const color = cleanString(value, 24);
   if (!color) return fallback;
-  if (!/^#[0-9a-f]{6}$/i.test(color)) throw new Error("Hex color must look like #00D1FF.");
+  if (!/^#[0-9a-f]{6}$/i.test(color)) throw new Error("สีต้องเป็น Hex แบบ #00D1FF นะ");
   return color.toUpperCase();
 }
 
@@ -418,7 +420,7 @@ function parseEnabledInput(value, fallback) {
   if (!text) return fallback;
   if (["true", "on", "yes", "enable", "enabled", "1"].includes(text)) return true;
   if (["false", "off", "no", "disable", "disabled", "0"].includes(text)) return false;
-  throw new Error("Enabled must be true/false, on/off, yes/no, or 1/0.");
+  throw new Error("ช่องเปิด/ปิดให้ใส่ true/false, on/off, yes/no หรือ 1/0 นะ");
 }
 
 function textInput(id, label, value, style = TextInputStyle.Short, maxLength = 1000, placeholder = "") {
@@ -443,17 +445,17 @@ function buildEmbedEditorModal(target, panel, section) {
   assertEmbedTarget(target);
   const modal = new ModalBuilder()
     .setCustomId(`embedmodal:${target}:${panel}`)
-    .setTitle(`Edit ${target}: ${panel}`);
+    .setTitle(`แก้ ${target}: ${panel}`);
 
   if (panel === "basic") {
     modal.addComponents(
-      modalRow(textInput("title", "Title", section.title, TextInputStyle.Short, 256, "Embed title")),
+      modalRow(textInput("title", "หัวข้อ", section.title, TextInputStyle.Short, 256, "หัวข้อ embed")),
       modalRow(textInput("color", "Hex Color", section.color, TextInputStyle.Short, 24, "#00D1FF"))
     );
 
     if (target === "form") {
       modal.addComponents(
-        modalRow(textInput("button_label", "Button Label", section.buttonLabel, TextInputStyle.Short, 80, "Open form"))
+        modalRow(textInput("button_label", "ข้อความบนปุ่ม", section.buttonLabel, TextInputStyle.Short, 80, "เปิดฟอร์ม"))
       );
     }
 
@@ -466,7 +468,7 @@ function buildEmbedEditorModal(target, panel, section) {
       modalRow(
         textInput(
           "body",
-          target === "summary" ? "Summary Template" : "Description",
+          target === "summary" ? "เทมเพลตสรุป" : "คำอธิบาย",
           body,
           TextInputStyle.Paragraph,
           4000,
@@ -479,34 +481,34 @@ function buildEmbedEditorModal(target, panel, section) {
 
   if (panel === "images") {
     modal.addComponents(
-      modalRow(textInput("image", "Image URL", section.image, TextInputStyle.Short, 700, "https://...")),
-      modalRow(textInput("thumbnail", "Thumbnail URL", section.thumbnail, TextInputStyle.Short, 700, "{user_avatar}"))
+      modalRow(textInput("image", "URL รูปใหญ่", section.image, TextInputStyle.Short, 700, "https://...")),
+      modalRow(textInput("thumbnail", "URL รูปเล็ก", section.thumbnail, TextInputStyle.Short, 700, "{user_avatar}"))
     );
     return modal;
   }
 
   if (panel === "footer") {
     modal.addComponents(
-      modalRow(textInput("footer", "Footer", section.footer, TextInputStyle.Paragraph, 2048, placeholdersForTarget(target)))
+      modalRow(textInput("footer", "ข้อความท้าย embed", section.footer, TextInputStyle.Paragraph, 2048, placeholdersForTarget(target)))
     );
     return modal;
   }
 
   if (panel === "target") {
     modal.addComponents(
-      modalRow(textInput("channel_id", "Channel ID", section.channelId || "", TextInputStyle.Short, 32, "Paste channel ID"))
+      modalRow(textInput("channel_id", "Channel ID", section.channelId || "", TextInputStyle.Short, 32, "วาง ID ห้อง"))
     );
 
     if (MEMBER_EMBED_TARGETS.has(target)) {
       modal.addComponents(
-        modalRow(textInput("enabled", "Enabled", section.enabled ? "true" : "false", TextInputStyle.Short, 24, "true / false"))
+        modalRow(textInput("enabled", "เปิดใช้งาน", section.enabled ? "true" : "false", TextInputStyle.Short, 24, "true / false"))
       );
     }
 
     return modal;
   }
 
-  throw new Error("Unknown editor panel.");
+  throw new Error("ชิกิหา panel นี้ไม่เจอนะ");
 }
 
 function editorButton(target, panel, label, style = ButtonStyle.Secondary) {
@@ -519,21 +521,21 @@ function editorButton(target, panel, label, style = ButtonStyle.Secondary) {
 function embedEditorRows(target, section) {
   const rows = [
     new ActionRowBuilder().addComponents(
-      editorButton(target, "basic", "Basic", ButtonStyle.Primary),
-      editorButton(target, "body", "Body"),
-      editorButton(target, "images", "Images"),
-      editorButton(target, "footer", "Footer"),
-      editorButton(target, "target", "Target")
+      editorButton(target, "basic", "พื้นฐาน", ButtonStyle.Primary),
+      editorButton(target, "body", "ข้อความ"),
+      editorButton(target, "images", "รูปภาพ"),
+      editorButton(target, "footer", "ท้าย embed"),
+      editorButton(target, "target", "เป้าหมาย")
     )
   ];
 
   const secondRow = new ActionRowBuilder().addComponents(
-    editorButton(target, "refresh", "Refresh", ButtonStyle.Secondary)
+    editorButton(target, "refresh", "รีเฟรช", ButtonStyle.Secondary)
   );
 
   if (MEMBER_EMBED_TARGETS.has(target)) {
     secondRow.addComponents(
-      editorButton(target, "toggle", section.enabled ? "Disable" : "Enable", section.enabled ? ButtonStyle.Danger : ButtonStyle.Success)
+      editorButton(target, "toggle", section.enabled ? "ปิด" : "เปิด", section.enabled ? ButtonStyle.Danger : ButtonStyle.Success)
     );
   }
 
@@ -545,22 +547,22 @@ async function embedEditorPayload(target, guildConfig, interaction, notice = "")
   assertEmbedTarget(target);
   const section = sectionForTarget(guildConfig, target);
   const preview = await previewPayloadForTarget(target, guildConfig, interaction);
-  const targetChannel = section.channelId ? `<#${section.channelId}>` : "Not set";
-  const enabledText = MEMBER_EMBED_TARGETS.has(target) ? (section.enabled ? "Enabled" : "Disabled") : "Always available";
+  const targetChannel = section.channelId ? `<#${section.channelId}>` : "ยังไม่ได้ตั้ง";
+  const enabledText = MEMBER_EMBED_TARGETS.has(target) ? (section.enabled ? "เปิดอยู่" : "ปิดอยู่") : "ใช้ได้เสมอ";
   const status = new EmbedBuilder()
-    .setTitle(`Editing: ${target}`)
+    .setTitle(`ชิกิกำลังแต่ง: ${target}`)
     .setColor(safeColor(section.color))
-    .setDescription(`Use the buttons below to edit this embed with popup forms.\nPlaceholders: ${placeholdersForTarget(target)}`)
+    .setDescription(`กดปุ่มด้านล่างเพื่อแก้ embed ทีละส่วนด้วย popup นะ\nPlaceholder: ${placeholdersForTarget(target)}`)
     .addFields(
-      { name: "Target channel", value: targetChannel, inline: true },
-      { name: "Status", value: enabledText, inline: true },
-      { name: "Color", value: safeColor(section.color), inline: true }
+      { name: "ห้องเป้าหมาย", value: targetChannel, inline: true },
+      { name: "สถานะ", value: enabledText, inline: true },
+      { name: "สี", value: safeColor(section.color), inline: true }
     );
 
   return {
-    content: notice || `Editing \`${target}\` embed.`,
+    content: notice || `ชิกิเปิด editor ของ \`${target}\` ให้แล้วน้า`,
     embeds: [status, ...(preview.embeds || [])],
-    components: embedEditorRows(target, section),
+    components: [...(preview.components || []), ...embedEditorRows(target, section)].slice(0, 5),
     ephemeral: true
   };
 }
@@ -759,7 +761,7 @@ function findSubmitter(answers, questions) {
     if (snowflake) return `<@${snowflake}>`;
   }
 
-  return "Unknown user";
+  return "ไม่ทราบผู้กรอก";
 }
 
 function collapseBlankLines(text) {
@@ -773,9 +775,14 @@ function collapseBlankLines(text) {
 }
 
 function renderSummaryTemplate(template, replacements, missingAnswerTokens) {
+  const missingTokens = new Set(missingAnswerTokens);
+  const answerTokenPattern = /\{(?:[1-9]|1[0-9]|20)\}/g;
   const lines = cleanString(template, 4000)
     .split(/\r?\n/)
-    .filter((line) => !missingAnswerTokens.some((token) => line.includes(token)));
+    .filter((line) => {
+      const answerTokens = line.match(answerTokenPattern) || [];
+      return !answerTokens.length || answerTokens.some((token) => !missingTokens.has(token));
+    });
 
   return collapseBlankLines(lines.join("\n").replace(/\{[^}]+\}/g, (token) => replacements[token] ?? token));
 }
@@ -849,12 +856,12 @@ async function buildSummaryEmbed(guildConfig, projectId, record) {
     summarySection.template = "";
   }
 
-  const embed = buildEmbed(summarySection, context.replacements, "New form submission");
+  const embed = buildEmbed(summarySection, context.replacements, "มีฟอร์มใหม่เข้ามาแล้วน้า");
 
   if (!hasCustomBody && context.fields.length) {
     embed.addFields(context.fields);
   } else if (!embed.data.description) {
-    embed.setDescription("No answers were found in this submission.");
+    embed.setDescription("ชิกิยังไม่เจอคำตอบในรายการนี้นะ");
   }
 
   return { embed, submitter: extractSnowflake(context.replacements["{user_mb}"]) };
@@ -882,16 +889,16 @@ async function assertProjectBelongsToGuild(projectId, guildId) {
   const project = await getProject(projectId);
   const serverId = cleanString(project?.serverId, 32);
   if (serverId && serverId !== guildId) {
-    throw new Error("This project Server ID does not match the current Discord server.");
+    throw new Error("Server ID ของโปรเจกต์นี้ไม่ตรงกับเซิร์ฟเวอร์ Discord ปัจจุบันนะ");
   }
 }
 
 async function fetchSendableChannel(channelId) {
-  if (!channelId) throw new Error("A target channel has not been configured.");
+  if (!channelId) throw new Error("ยังไม่ได้ตั้งห้องเป้าหมายนะ");
 
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel || typeof channel.send !== "function") {
-    throw new Error("The configured channel was not found or is not sendable.");
+    throw new Error("ชิกิหาห้องที่ตั้งไว้ไม่เจอ หรือส่งข้อความในห้องนั้นไม่ได้");
   }
 
   return channel;
@@ -993,7 +1000,7 @@ async function sendFormAnnouncement(guildConfig, channelId = null) {
   const embed = buildEmbed(guildConfig.formAnnounce, replacements);
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setLabel(guildConfig.formAnnounce.buttonLabel || "Open form")
+      .setLabel(guildConfig.formAnnounce.buttonLabel || "เปิดฟอร์ม")
       .setStyle(ButtonStyle.Link)
       .setURL(formUrl)
   );
@@ -1013,73 +1020,30 @@ async function sendMemberEmbed(member, type) {
   await channel.send({ embeds: [embed] });
 }
 
-function addTextOption(command, name, description, maxLength = 1000) {
-  return command.addStringOption((option) =>
-    option.setName(name).setDescription(description).setRequired(false).setMaxLength(maxLength)
-  );
-}
-
-function addEmbedOptions(command, includeTemplate = false, includeButton = false) {
-  command.addChannelOption((option) =>
-    option
-      .setName("channel")
-      .setDescription("Text channel to send messages")
-      .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
-      .setRequired(false)
-  );
-  addTextOption(command, "title", "Embed title. Supports placeholders.", 256);
-
-  if (includeTemplate) {
-    addTextOption(command, "template", "Summary body. Use {1} to {20}, {user_mb}, {timing}.", 4000);
-  } else {
-    addTextOption(command, "description", "Embed description. Supports placeholders.", 4000);
-  }
-
-  addTextOption(command, "color", "Embed color, for example #00D1FF.", 24);
-  addTextOption(command, "image", "Embed image URL or {user_avatar}.", 700);
-  addTextOption(command, "thumbnail", "Embed thumbnail URL or {user_avatar}.", 700);
-  addTextOption(command, "footer", "Embed footer. Supports placeholders.", 2048);
-
-  if (includeButton) {
-    addTextOption(command, "button_label", "Form button label.", 80);
-  }
-
-  return command;
-}
-
 function buildCommands() {
   const manage = PermissionFlagsBits.ManageGuild;
 
   const formCommand = new SlashCommandBuilder()
     .setName("form")
-    .setDescription("Configure form bridge, notifications, and form link embeds")
+    .setDescription("ตั้งค่าการเชื่อมฟอร์มและส่งลิงก์ฟอร์ม")
     .setDefaultMemberPermissions(manage)
     .setDMPermission(false)
     .addSubcommand((subcommand) =>
       subcommand
         .setName("project")
-        .setDescription("Link this Discord server to a website project")
+        .setDescription("เชื่อมเซิร์ฟเวอร์นี้กับโปรเจกต์เว็บไซต์")
         .addStringOption((option) =>
-          option.setName("project_id").setDescription("Project ID, public form URL, or editor URL").setRequired(true)
-        )
-    )
-    .addSubcommand((subcommand) =>
-      addEmbedOptions(subcommand.setName("summary").setDescription("Configure submission summary embed"), true, false)
-    )
-    .addSubcommand((subcommand) =>
-      addEmbedOptions(subcommand.setName("announce").setDescription("Configure the public form link embed"), false, true)
-        .addBooleanOption((option) =>
-          option.setName("send_now").setDescription("Send the form link embed immediately").setRequired(false)
+          option.setName("project_id").setDescription("Project ID, ลิงก์ฟอร์ม, หรือลิงก์ editor").setRequired(true)
         )
     )
     .addSubcommand((subcommand) =>
       subcommand
         .setName("send")
-        .setDescription("Send the configured public form link embed")
+        .setDescription("ส่ง embed ลิงก์ฟอร์มที่ตั้งค่าไว้")
         .addChannelOption((option) =>
           option
             .setName("channel")
-            .setDescription("Override target channel")
+            .setDescription("ส่งไปห้องอื่นชั่วคราว")
             .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
             .setRequired(false)
         )
@@ -1087,76 +1051,52 @@ function buildCommands() {
     .addSubcommand((subcommand) =>
       subcommand
         .setName("role")
-        .setDescription("Set the role to give after a form submission")
-        .addRoleOption((option) => option.setName("role").setDescription("Role to give").setRequired(true))
+        .setDescription("ตั้ง role ที่จะให้หลังส่งฟอร์ม")
+        .addRoleOption((option) => option.setName("role").setDescription("Role ที่จะให้").setRequired(true))
     );
-
-  const welcomeCommand = new SlashCommandBuilder()
-    .setName("welcome")
-    .setDescription("Configure welcome embed")
-    .setDefaultMemberPermissions(manage)
-    .setDMPermission(false)
-    .addSubcommand((subcommand) =>
-      addEmbedOptions(subcommand.setName("setup").setDescription("Enable or edit welcome embed"), false, false)
-        .addBooleanOption((option) => option.setName("enabled").setDescription("Enable welcome messages").setRequired(false))
-    )
-    .addSubcommand((subcommand) => subcommand.setName("test").setDescription("Preview the welcome embed"))
-    .addSubcommand((subcommand) => subcommand.setName("disable").setDescription("Disable welcome messages"));
-
-  const goodbyeCommand = new SlashCommandBuilder()
-    .setName("goodbye")
-    .setDescription("Configure goodbye embed")
-    .setDefaultMemberPermissions(manage)
-    .setDMPermission(false)
-    .addSubcommand((subcommand) =>
-      addEmbedOptions(subcommand.setName("setup").setDescription("Enable or edit goodbye embed"), false, false)
-        .addBooleanOption((option) => option.setName("enabled").setDescription("Enable goodbye messages").setRequired(false))
-    )
-    .addSubcommand((subcommand) => subcommand.setName("test").setDescription("Preview the goodbye embed"))
-    .addSubcommand((subcommand) => subcommand.setName("disable").setDescription("Disable goodbye messages"));
 
   const embedCommand = new SlashCommandBuilder()
     .setName("embed")
-    .setDescription("Apply ready-made embed presets")
+    .setDescription("แต่ง embed ด้วย popup editor และ preset")
     .setDefaultMemberPermissions(manage)
     .setDMPermission(false)
     .addSubcommand((subcommand) =>
       subcommand
         .setName("editor")
-        .setDescription("Open the button and popup embed editor")
+        .setDescription("เปิดหน้าแต่ง embed แบบปุ่มและ popup")
         .addStringOption((option) =>
           option
             .setName("target")
-            .setDescription("Embed target")
+            .setDescription("เลือก embed ที่จะแต่ง")
             .setRequired(true)
             .addChoices(
-              { name: "form", value: "form" },
-              { name: "summary", value: "summary" },
-              { name: "welcome", value: "welcome" },
-              { name: "goodbye", value: "goodbye" }
+              { name: "ฟอร์ม", value: "form" },
+              { name: "สรุปคำตอบ", value: "summary" },
+              { name: "ต้อนรับ", value: "welcome" },
+              { name: "ลาออก", value: "goodbye" }
             )
         )
     )
     .addSubcommand((subcommand) =>
       subcommand
         .setName("preset")
-        .setDescription("Apply a clean preset to an embed target")
+        .setDescription("ใช้ preset สำเร็จรูปกับ embed")
         .addStringOption((option) =>
           option
             .setName("target")
-            .setDescription("Embed target")
+            .setDescription("เลือก embed")
             .setRequired(true)
             .addChoices(
-              { name: "form", value: "form" },
-              { name: "summary", value: "summary" },
-              { name: "welcome", value: "welcome" },
-              { name: "goodbye", value: "goodbye" }
+              { name: "ฟอร์ม", value: "form" },
+              { name: "สรุปคำตอบ", value: "summary" },
+              { name: "ต้อนรับ", value: "welcome" },
+              { name: "ลาออก", value: "goodbye" }
             )
         )
         .addStringOption((option) =>
           option
             .setName("style")
-            .setDescription("Preset style")
+            .setDescription("สไตล์ preset")
             .setRequired(true)
             .addChoices(
               { name: "mimu", value: "mimu" },
@@ -1168,76 +1108,76 @@ function buildCommands() {
         .addChannelOption((option) =>
           option
             .setName("channel")
-            .setDescription("Optional target channel")
+            .setDescription("ตั้งห้องเป้าหมายพร้อม preset")
             .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
             .setRequired(false)
         )
         .addBooleanOption((option) =>
-          option.setName("preview").setDescription("Show a private preview after saving").setRequired(false)
+          option.setName("preview").setDescription("แสดง preview ส่วนตัวหลังบันทึก").setRequired(false)
         )
     )
     .addSubcommand((subcommand) =>
       subcommand
         .setName("placeholders")
-        .setDescription("Show placeholders for an embed target")
+        .setDescription("ดู placeholder ที่ใช้ได้")
         .addStringOption((option) =>
           option
             .setName("target")
-            .setDescription("Embed target")
+            .setDescription("เลือก embed")
             .setRequired(true)
             .addChoices(
-              { name: "form", value: "form" },
-              { name: "summary", value: "summary" },
-              { name: "welcome", value: "welcome" },
-              { name: "goodbye", value: "goodbye" }
+              { name: "ฟอร์ม", value: "form" },
+              { name: "สรุปคำตอบ", value: "summary" },
+              { name: "ต้อนรับ", value: "welcome" },
+              { name: "ลาออก", value: "goodbye" }
             )
         )
     );
 
   const botCommand = new SlashCommandBuilder()
     .setName("bot")
-    .setDescription("View or reset bot settings")
+    .setDescription("ดูหรือล้างค่าบอท")
     .setDefaultMemberPermissions(manage)
     .setDMPermission(false)
-    .addSubcommand((subcommand) => subcommand.setName("settings").setDescription("Show current settings"))
+    .addSubcommand((subcommand) => subcommand.setName("settings").setDescription("ดูค่าปัจจุบัน"))
     .addSubcommand((subcommand) =>
       subcommand
         .setName("reset")
-        .setDescription("Reset one settings group")
+        .setDescription("ล้างค่าบางส่วน")
         .addStringOption((option) =>
           option
             .setName("target")
-            .setDescription("Settings group to reset")
+            .setDescription("ส่วนที่จะล้าง")
             .setRequired(true)
             .addChoices(
-              { name: "all", value: "all" },
-              { name: "form", value: "form" },
-              { name: "summary", value: "summary" },
-              { name: "welcome", value: "welcome" },
-              { name: "goodbye", value: "goodbye" }
+              { name: "ทั้งหมด", value: "all" },
+              { name: "ฟอร์ม", value: "form" },
+              { name: "สรุปคำตอบ", value: "summary" },
+              { name: "ต้อนรับ", value: "welcome" },
+              { name: "ลาออก", value: "goodbye" }
             )
         )
     );
 
   const previewCommand = new SlashCommandBuilder()
     .setName("preview")
-    .setDescription("Preview configured embeds")
+    .setDescription("ดูตัวอย่าง embed ที่ตั้งไว้")
     .setDefaultMemberPermissions(manage)
     .setDMPermission(false)
     .addStringOption((option) =>
       option
         .setName("target")
-        .setDescription("Embed to preview")
+        .setDescription("เลือก embed")
         .setRequired(true)
         .addChoices(
-          { name: "form", value: "form" },
-          { name: "summary", value: "summary" },
-          { name: "welcome", value: "welcome" },
-          { name: "goodbye", value: "goodbye" }
+          { name: "ฟอร์ม", value: "form" },
+          { name: "สรุปคำตอบ", value: "summary" },
+          { name: "ต้อนรับ", value: "welcome" },
+          { name: "ลาออก", value: "goodbye" }
         )
     );
 
-  return [formCommand, welcomeCommand, goodbyeCommand, embedCommand, botCommand, previewCommand].map((command) => command.toJSON());
+  return [formCommand, embedCommand, botCommand, previewCommand].map((command) => command.toJSON());
 }
 
 async function registerCommands() {
@@ -1251,41 +1191,18 @@ async function registerCommands() {
   console.log("Slash commands registered.");
 }
 
-function updateSectionFromOptions(section, options, { useTemplate = false, useButton = false } = {}) {
-  const channel = options.getChannel("channel");
-  const title = options.getString("title");
-  const description = options.getString("description");
-  const template = options.getString("template");
-  const color = options.getString("color");
-  const image = options.getString("image");
-  const thumbnail = options.getString("thumbnail");
-  const footer = options.getString("footer");
-  const buttonLabel = options.getString("button_label");
-  const enabled = options.getBoolean("enabled");
-
-  if (channel) section.channelId = channel.id;
-  if (title !== null) section.title = cleanString(title, 256);
-  if (!useTemplate && description !== null) section.description = cleanString(description, 4000);
-  if (useTemplate && template !== null) section.template = cleanString(template, 4000);
-  if (color !== null) section.color = safeColor(color, section.color);
-  if (image !== null) section.image = cleanString(image, 700);
-  if (thumbnail !== null) section.thumbnail = cleanString(thumbnail, 700);
-  if (footer !== null) section.footer = cleanString(footer, 2048);
-  if (useButton && buttonLabel !== null) section.buttonLabel = cleanString(buttonLabel, 80);
-  if (enabled !== null) section.enabled = enabled;
-}
-
 function settingsEmbed(guildConfig) {
   return new EmbedBuilder()
-    .setTitle("ShikiV4 settings")
+    .setTitle(`${BOT_DISPLAY_NAME} settings`)
+    .setDescription(BOT_PERSONA)
     .setColor(DEFAULT_COLOR)
     .addFields(
-      { name: "Project", value: guildConfig.projectId || "Not linked", inline: false },
-      { name: "Summary channel", value: guildConfig.summary.channelId ? `<#${guildConfig.summary.channelId}>` : "Not set", inline: true },
-      { name: "Form announce channel", value: guildConfig.formAnnounce.channelId ? `<#${guildConfig.formAnnounce.channelId}>` : "Not set", inline: true },
-      { name: "Welcome", value: guildConfig.welcome.enabled ? `<#${guildConfig.welcome.channelId}>` : "Disabled", inline: true },
-      { name: "Goodbye", value: guildConfig.goodbye.enabled ? `<#${guildConfig.goodbye.channelId}>` : "Disabled", inline: true },
-      { name: "Role after form", value: guildConfig.roleToGive ? `<@&${guildConfig.roleToGive}>` : "Not set", inline: true }
+      { name: "โปรเจกต์", value: guildConfig.projectId || "ยังไม่ได้เชื่อม", inline: false },
+      { name: "ห้องสรุปคำตอบ", value: guildConfig.summary.channelId ? `<#${guildConfig.summary.channelId}>` : "ยังไม่ได้ตั้ง", inline: true },
+      { name: "ห้องประกาศฟอร์ม", value: guildConfig.formAnnounce.channelId ? `<#${guildConfig.formAnnounce.channelId}>` : "ยังไม่ได้ตั้ง", inline: true },
+      { name: "ต้อนรับ", value: guildConfig.welcome.enabled ? `<#${guildConfig.welcome.channelId}>` : "ปิดอยู่", inline: true },
+      { name: "ลาออก", value: guildConfig.goodbye.enabled ? `<#${guildConfig.goodbye.channelId}>` : "ปิดอยู่", inline: true },
+      { name: "Role หลังส่งฟอร์ม", value: guildConfig.roleToGive ? `<@&${guildConfig.roleToGive}>` : "ยังไม่ได้ตั้ง", inline: true }
     )
     .setTimestamp();
 }
@@ -1301,35 +1218,14 @@ async function handleFormCommand(interaction, guildConfig) {
     saveConfig();
     watchProjectRecords(projectId);
     await processPendingRecordsForProject(projectId);
-    await interaction.editReply(`Linked project \`${projectId}\`.\nForm URL: ${getFormUrl(projectId)}`);
-    return;
-  }
-
-  if (subcommand === "summary") {
-    updateSectionFromOptions(guildConfig.summary, interaction.options, { useTemplate: true });
-    if (!guildConfig.summary.channelId) throw new Error("Set a summary channel with the channel option.");
-    saveConfig();
-    await interaction.reply({ content: `Summary embed saved. Target: <#${guildConfig.summary.channelId}>`, ephemeral: true });
-    return;
-  }
-
-  if (subcommand === "announce") {
-    updateSectionFromOptions(guildConfig.formAnnounce, interaction.options, { useButton: true });
-    if (!guildConfig.formAnnounce.channelId) throw new Error("Set a form announce channel with the channel option.");
-    saveConfig();
-
-    if (interaction.options.getBoolean("send_now")) {
-      await sendFormAnnouncement(guildConfig);
-    }
-
-    await interaction.reply({ content: `Form announcement saved. Target: <#${guildConfig.formAnnounce.channelId}>`, ephemeral: true });
+    await interaction.editReply(`ชิกิเชื่อมโปรเจกต์ \`${projectId}\` ให้แล้วน้า\nลิงก์ฟอร์ม: ${getFormUrl(projectId)}`);
     return;
   }
 
   if (subcommand === "send") {
     const channel = interaction.options.getChannel("channel");
     await sendFormAnnouncement(guildConfig, channel?.id || null);
-    await interaction.reply({ content: "Form link embed sent.", ephemeral: true });
+    await interaction.reply({ content: "ส่ง embed ลิงก์ฟอร์มให้แล้วน้า", ephemeral: true });
     return;
   }
 
@@ -1337,34 +1233,7 @@ async function handleFormCommand(interaction, guildConfig) {
     const role = interaction.options.getRole("role");
     guildConfig.roleToGive = role.id;
     saveConfig();
-    await interaction.reply({ content: `Role after form set to ${role}.`, ephemeral: true });
-  }
-}
-
-async function handleMemberEmbedCommand(interaction, guildConfig, type) {
-  const subcommand = interaction.options.getSubcommand();
-  const section = guildConfig[type];
-
-  if (subcommand === "setup") {
-    updateSectionFromOptions(section, interaction.options);
-    if (interaction.options.getBoolean("enabled") === null) section.enabled = true;
-    if (section.enabled && !section.channelId) throw new Error(`Set a ${type} channel with the channel option.`);
-    saveConfig();
-    await interaction.reply({ content: `${type} embed saved. Status: ${section.enabled ? "enabled" : "disabled"}.`, ephemeral: true });
-    return;
-  }
-
-  if (subcommand === "disable") {
-    section.enabled = false;
-    saveConfig();
-    await interaction.reply({ content: `${type} messages disabled.`, ephemeral: true });
-    return;
-  }
-
-  if (subcommand === "test") {
-    const member = await interactionGuildMember(interaction);
-    const embed = buildEmbed(section, memberReplacements(member));
-    await interaction.reply({ embeds: [embed], ephemeral: true });
+    await interaction.reply({ content: `ตั้ง role หลังส่งฟอร์มเป็น ${role} แล้วนะ`, ephemeral: true });
   }
 }
 
@@ -1391,7 +1260,7 @@ async function handleBotCommand(interaction, guildConfig) {
     }
 
     saveConfig();
-    await interaction.reply({ content: `Reset ${target} settings.`, ephemeral: true });
+    await interaction.reply({ content: `ชิกิล้างค่า \`${target}\` ให้แล้วนะ`, ephemeral: true });
   }
 }
 
@@ -1404,7 +1273,7 @@ async function previewPayloadForTarget(target, guildConfig, interaction) {
     });
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setLabel(guildConfig.formAnnounce.buttonLabel || "Open form")
+        .setLabel(guildConfig.formAnnounce.buttonLabel || "เปิดฟอร์ม")
         .setStyle(ButtonStyle.Link)
         .setURL(formUrl)
     );
@@ -1442,7 +1311,7 @@ async function handleEmbedCommand(interaction, guildConfig) {
   if (subcommand === "placeholders") {
     const target = interaction.options.getString("target");
     await interaction.reply({
-      content: `Placeholders for \`${target}\`: ${placeholdersForTarget(target)}`,
+      content: `Placeholder สำหรับ \`${target}\`: ${placeholdersForTarget(target)}`,
       ephemeral: true
     });
     return;
@@ -1457,7 +1326,7 @@ async function handleEmbedCommand(interaction, guildConfig) {
   if (interaction.options.getBoolean("preview")) {
     const payload = await previewPayloadForTarget(target, guildConfig, interaction);
     await interaction.reply({
-      content: `Applied \`${style}\` preset to \`${target}\`.`,
+      content: `ชิกิใส่ preset \`${style}\` ให้ \`${target}\` แล้วน้า`,
       ...payload,
       ephemeral: true
     });
@@ -1465,7 +1334,7 @@ async function handleEmbedCommand(interaction, guildConfig) {
   }
 
   await interaction.reply({
-    content: `Applied \`${style}\` preset to \`${target}\`. Use /preview target:${target} to inspect it.`,
+    content: `ชิกิใส่ preset \`${style}\` ให้ \`${target}\` แล้ว ใช้ /preview target:${target} เพื่อดูตัวอย่างได้เลย`,
     ephemeral: true
   });
 }
@@ -1481,15 +1350,15 @@ async function normalizeEditorChannelId(interaction, rawValue) {
   if (!text) return null;
 
   const channelId = extractSnowflake(text);
-  if (!isSnowflake(channelId)) throw new Error("Channel ID must be a Discord channel ID or channel mention.");
+  if (!isSnowflake(channelId)) throw new Error("Channel ID ต้องเป็น ID ห้องหรือ mention ห้อง Discord นะ");
 
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel || channel.guildId !== interaction.guildId) {
-    throw new Error("Channel was not found in this server.");
+    throw new Error("ชิกิหาห้องนี้ในเซิร์ฟเวอร์ไม่เจอนะ");
   }
 
   if (![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type)) {
-    throw new Error("Channel must be a text or announcement channel.");
+    throw new Error("ห้องเป้าหมายต้องเป็นห้องข้อความหรือห้องประกาศนะ");
   }
 
   return channelId;
@@ -1500,7 +1369,7 @@ async function applyEmbedEditorModal(interaction, target, panel, section) {
     section.title = cleanString(interaction.fields.getTextInputValue("title"), 256);
     section.color = validateHexColorInput(interaction.fields.getTextInputValue("color"), section.color);
     if (target === "form") {
-      section.buttonLabel = cleanString(interaction.fields.getTextInputValue("button_label"), 80) || "Open form";
+      section.buttonLabel = cleanString(interaction.fields.getTextInputValue("button_label"), 80) || "เปิดฟอร์ม";
     }
     return;
   }
@@ -1535,7 +1404,7 @@ async function applyEmbedEditorModal(interaction, target, panel, section) {
     return;
   }
 
-  throw new Error("Unknown editor panel.");
+  throw new Error("ชิกิหา panel นี้ไม่เจอนะ");
 }
 
 async function handleEmbedEditorButton(interaction) {
@@ -1553,21 +1422,21 @@ async function handleEmbedEditorButton(interaction) {
   }
 
   if (action === "toggle") {
-    if (!MEMBER_EMBED_TARGETS.has(target)) throw new Error("Only welcome and goodbye embeds can be enabled or disabled.");
+    if (!MEMBER_EMBED_TARGETS.has(target)) throw new Error("เปิด/ปิดได้เฉพาะ embed ต้อนรับและลาออกนะ");
     section.enabled = !section.enabled;
     saveConfig();
-    const payload = await embedEditorPayload(target, guildConfig, interaction, `${target} is now ${section.enabled ? "enabled" : "disabled"}.`);
+    const payload = await embedEditorPayload(target, guildConfig, interaction, `ชิกิ${section.enabled ? "เปิด" : "ปิด"} \`${target}\` ให้แล้วน้า`);
     await interaction.update(stripEphemeral(payload));
     return true;
   }
 
   if (action === "refresh") {
-    const payload = await embedEditorPayload(target, guildConfig, interaction, `Refreshed \`${target}\` preview.`);
+    const payload = await embedEditorPayload(target, guildConfig, interaction, `รีเฟรช preview ของ \`${target}\` ให้แล้วนะ`);
     await interaction.update(stripEphemeral(payload));
     return true;
   }
 
-  throw new Error("Unknown editor action.");
+  throw new Error("ชิกิหา action นี้ไม่เจอนะ");
 }
 
 async function handleEmbedEditorModal(interaction) {
@@ -1582,7 +1451,7 @@ async function handleEmbedEditorModal(interaction) {
   await applyEmbedEditorModal(interaction, target, panel, section);
   saveConfig();
 
-  const payload = await embedEditorPayload(target, guildConfig, interaction, `Saved \`${panel}\` settings for \`${target}\`.`);
+  const payload = await embedEditorPayload(target, guildConfig, interaction, `บันทึกส่วน \`${panel}\` ของ \`${target}\` แล้วน้า`);
   await interaction.reply(payload);
   return true;
 }
@@ -1618,10 +1487,6 @@ client.on("interactionCreate", async (interaction) => {
 
     if (interaction.commandName === "form") {
       await handleFormCommand(interaction, guildConfig);
-    } else if (interaction.commandName === "welcome") {
-      await handleMemberEmbedCommand(interaction, guildConfig, "welcome");
-    } else if (interaction.commandName === "goodbye") {
-      await handleMemberEmbedCommand(interaction, guildConfig, "goodbye");
     } else if (interaction.commandName === "embed") {
       await handleEmbedCommand(interaction, guildConfig);
     } else if (interaction.commandName === "bot") {
@@ -1632,7 +1497,7 @@ client.on("interactionCreate", async (interaction) => {
   } catch (error) {
     console.error(error);
     const payload = {
-      content: `Command failed: ${cleanString(error.message || error, 300)}`
+      content: `ชิกิทำคำสั่งไม่สำเร็จ: ${cleanString(error.message || error, 300)}`
     };
 
     if (interaction.deferred || interaction.replied) {
@@ -1655,7 +1520,7 @@ app.post("/submit", async (req, res) => {
     const guildId = cleanString(data.guild_id || data.guildId || "", 32) || (projectId ? await resolveGuildForProject(projectId) : null);
 
     if (!guildId || !config[guildId]) {
-      res.status(400).send({ status: "error", error: "Server is not configured." });
+      res.status(400).send({ status: "error", error: "ยังไม่ได้ตั้งค่าเซิร์ฟเวอร์นี้" });
       return;
     }
 

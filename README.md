@@ -60,23 +60,15 @@ Enable these bot permissions/intents:
 - Slash commands
 - Send Messages
 - Embed Links
-- Manage Roles if using role assignment
-- Server Members Intent for welcome/goodbye embeds
+- Manage Roles ถ้าใช้ระบบให้ role หลังส่งฟอร์ม
+- Server Members Intent ถ้าใช้ embed ต้อนรับ/ลาออก
 
-## Main slash commands
+## คำสั่งหลัก
 
 ```text
 /form project project_id:<website-project-id-or-form-url>
-/form summary channel:#summary template:<message> title:<title> color:#00D1FF
-/form announce channel:#forms title:<title> description:<message> button_label:<label> send_now:true
 /form send
 /form role role:@role
-/welcome setup channel:#welcome title:<title> description:<message> enabled:true
-/welcome test
-/welcome disable
-/goodbye setup channel:#goodbye title:<title> description:<message> enabled:true
-/goodbye test
-/goodbye disable
 /embed editor target:<form|summary|welcome|goodbye>
 /embed preset target:<form|summary|welcome|goodbye> style:<mimu|neon|clean|simple>
 /embed placeholders target:<form|summary|welcome|goodbye>
@@ -85,9 +77,9 @@ Enable these bot permissions/intents:
 /preview target:<form|summary|welcome|goodbye>
 ```
 
-## Placeholders
+## Placeholder
 
-Welcome and goodbye embeds:
+Embed ต้อนรับ/ลาออก:
 
 ```text
 {user}
@@ -97,26 +89,24 @@ Welcome and goodbye embeds:
 {server}
 ```
 
-Summary embeds:
+Embed สรุปคำตอบ:
 
 ```text
-{answers}
-{answers_named}
 {1} ... {20}
 {user_mb}
 {timing}
 ```
 
-`{answers}` only renders submitted answers. Empty or missing answers are skipped.
+ให้ผู้ใช้พิม `{1}` ถึง `{20}` เองใน popup editor เพื่อจัด layout ได้เต็มที่ ข้อที่ว่างหรือไม่มีคำตอบจะถูกข้าม ไม่แสดงใน embed
 
-Form announcement embeds:
+Embed ประกาศฟอร์ม:
 
 ```text
 {form_url}
 {time}
 ```
 
-Note: Discord embed image and thumbnail fields require an HTTPS image URL or a supported placeholder such as `{user_avatar}`.
+หมายเหตุ: รูปใหญ่และรูปเล็กของ Discord embed ต้องเป็น HTTPS URL หรือ placeholder ที่รองรับ เช่น `{user_avatar}`
 
 ## Firebase record format
 
