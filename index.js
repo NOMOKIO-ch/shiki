@@ -4,6 +4,7 @@ dotenv.config({ quiet: true });
 import fs from "fs";
 import {
   ActionRowBuilder,
+  AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
@@ -710,6 +711,7 @@ function submissionAnswers(record = {}) {
     "createdAt",
     "error",
     "failedAt",
+    "images",
     "lockedAt",
     "lockedBy",
     "processingAt",
@@ -840,6 +842,31 @@ function summaryContext(record, questions) {
   return { replacements, fields, answers, missingAnswerTokens };
 }
 
+// รูปที่ผู้กรอกอัปโหลดมาจะถูกเก็บเป็น base64 data URL ใน record.images (ดู db.js ฝั่งเว็บ)
+// Discord embed ใส่ได้แค่ URL ที่โหลดผ่าน HTTP จริงๆ เท่านั้น (ไม่ใช่ data: URI) จึงต้องถอดรหัสเป็นไฟล์
+// แล้วแนบเป็น attachment ไปกับข้อความ แล้วอ้างอิงด้วย attachment://<ชื่อไฟล์> ใน embed แทน
+function dataUrlToImageBuffer(dataUrl) {
+  const match = /^data:image\/(png|jpe?g|webp|gif);base64,([a-z0-9+/=]+)$/i.exec(String(dataUrl || "").trim());
+  if (!match) return null;
+
+  const rawExt = match[1].toLowerCase();
+  const ext = rawExt === "jpg" ? "jpeg" : rawExt;
+  return { buffer: Buffer.from(match[2], "base64"), ext };
+}
+
+function findSubmissionImageAttachment(record, questions) {
+  const images = record.images && typeof record.images === "object" ? record.images : {};
+  const imageQuestion = questions.find((question) => question.type === "image" && images[question.id]);
+  const dataUrl = imageQuestion ? images[imageQuestion.id] : Object.values(images).find(Boolean);
+  if (!dataUrl) return null;
+
+  const decoded = dataUrlToImageBuffer(dataUrl);
+  if (!decoded) return null;
+
+  const filename = `form-image.${decoded.ext}`;
+  return new AttachmentBuilder(decoded.buffer, { name: filename });
+}
+
 async function buildSummaryEmbed(guildConfig, projectId, record) {
   const project = await getProject(projectId);
   const questions = normalizeQuestions(project?.form);
@@ -864,7 +891,10 @@ async function buildSummaryEmbed(guildConfig, projectId, record) {
     embed.setDescription("ชิกิยังไม่เจอคำตอบในรายการนี้นะ");
   }
 
-  return { embed, submitter: extractSnowflake(context.replacements["{user_mb}"]) };
+  const attachment = findSubmissionImageAttachment(record, questions);
+  if (attachment) embed.setImage(`attachment://${attachment.name}`);
+
+  return { embed, submitter: extractSnowflake(context.replacements["{user_mb}"]), attachment };
 }
 
 function findGuildIdByProjectId(projectId) {
@@ -923,9 +953,9 @@ async function sendSubmissionToDiscord(guildId, record, projectId = null) {
   const guildConfig = ensureGuildConfig(guildId);
   const targetProjectId = projectId || guildConfig.projectId;
   const channel = await fetchSendableChannel(guildConfig.summary.channelId);
-  const { embed, submitter } = await buildSummaryEmbed(guildConfig, targetProjectId, record);
+  const { embed, submitter, attachment } = await buildSummaryEmbed(guildConfig, targetProjectId, record);
 
-  await channel.send({ embeds: [embed] });
+  await channel.send({ embeds: [embed], files: attachment ? [attachment] : [] });
   await assignRoleIfConfigured(guildId, guildConfig, submitter);
 }
 
