@@ -403,9 +403,14 @@ function assertEmbedTarget(target) {
   return target;
 }
 
-function assertManageGuild(interaction) {
-  if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
-    throw new Error("ต้องมีสิทธิ์ Manage Server ก่อนถึงจะแต่ง embed ให้ชิกิได้นะ");
+// เดิมบังคับ Manage Server (แอดมินเต็มขั้นเท่านั้น) ผู้ใช้ขอให้เปิดกว้างขึ้นเป็น "ผู้ดูแลขึ้นไป" จึงเพิ่ม
+// Moderate Members (สิทธิ์ timeout/moderator ทั่วไปของ Discord) เป็นอีกทางที่ผ่านได้ด้วย ถ้าต้องการเปลี่ยน
+// ระดับสิทธิ์ตรงนี้ (เช่น ผูกกับ role เฉพาะที่ตั้งเอง) แก้เงื่อนไขในฟังก์ชันนี้ที่เดียว
+function assertEditorPermission(interaction) {
+  const permissions = interaction.memberPermissions;
+  const allowed = permissions?.has(PermissionFlagsBits.ManageGuild) || permissions?.has(PermissionFlagsBits.ModerateMembers);
+  if (!allowed) {
+    throw new Error("ต้องมีสิทธิ์ระดับผู้ดูแล (Moderate Members) ขึ้นไปก่อนถึงจะแต่ง embed ให้ชิกิได้นะ");
   }
 }
 
@@ -563,8 +568,7 @@ async function embedEditorPayload(target, guildConfig, interaction, notice = "")
   return {
     content: notice || `ชิกิเปิด editor ของ \`${target}\` ให้แล้วน้า`,
     embeds: [status, ...(preview.embeds || [])],
-    components: [...(preview.components || []), ...embedEditorRows(target, section)].slice(0, 5),
-    ephemeral: true
+    components: [...(preview.components || []), ...embedEditorRows(target, section)].slice(0, 5)
   };
 }
 
@@ -766,6 +770,16 @@ function findSubmitter(answers, questions) {
   return "ไม่ทราบผู้กรอก";
 }
 
+// ข้อความดิบจากช่องคำถามประเภท Discord (ไม่ครอบด้วย <@...>) เอาไว้ใช้เทียบ username แบบ fuzzy
+// ตอนคนกรอกพิมพ์แค่ username เฉยๆ ไม่ได้แปะ ID หรือ mention มา (ดู findClosestMember/assignRoleIfConfigured)
+function findDiscordAnswerRaw(answers, questions) {
+  const preferred = questions.find((question) =>
+    question.type === "discord" || /discord|user.?id|member|dc/i.test(`${question.id} ${question.label}`)
+  );
+  if (!preferred) return "";
+  return answerByQuestion(answers, preferred, questions.indexOf(preferred));
+}
+
 function collapseBlankLines(text) {
   return cleanString(text, 4000)
     .split(/\r?\n/)
@@ -894,7 +908,7 @@ async function buildSummaryEmbed(guildConfig, projectId, record) {
   const attachment = findSubmissionImageAttachment(record, questions);
   if (attachment) embed.setImage(`attachment://${attachment.name}`);
 
-  return { embed, submitter: extractSnowflake(context.replacements["{user_mb}"]), attachment };
+  return { embed, submitter: extractSnowflake(context.replacements["{user_mb}"]), rawSubmitterText: findDiscordAnswerRaw(context.answers, questions), attachment };
 }
 
 function findGuildIdByProjectId(projectId) {
@@ -934,13 +948,71 @@ async function fetchSendableChannel(channelId) {
   return channel;
 }
 
-async function assignRoleIfConfigured(guildId, guildConfig, memberId) {
-  if (!guildConfig.roleToGive || !isSnowflake(memberId)) return;
+// ระยะแก้ไขระหว่างสองข้อความ (Levenshtein) ใช้วัดว่า username ในดิสใกล้เคียงกับข้อความที่กรอกแค่ไหน
+function levenshteinDistance(a, b) {
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+
+  const rows = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i += 1) rows[i][0] = i;
+  for (let j = 0; j <= b.length; j += 1) rows[0][j] = j;
+
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      rows[i][j] = a[i - 1] === b[j - 1]
+        ? rows[i - 1][j - 1]
+        : 1 + Math.min(rows[i - 1][j], rows[i][j - 1], rows[i - 1][j - 1]);
+    }
+  }
+  return rows[a.length][b.length];
+}
+
+// หาสมาชิกในเซิร์ฟเวอร์ที่ username/ชื่อเล่นตรงหรือใกล้เคียงข้อความที่กรอกมากที่สุด (ต้องมี guild.members.cache
+// โหลดไว้ก่อนแล้ว) ตรงเป๊ะเจอปุ๊บใช้เลย ไม่ตรงเป๊ะก็หาตัวที่ระยะแก้ไขน้อยที่สุดภายใน threshold ที่ยอมรับได้
+function findClosestMember(guild, rawText) {
+  const query = cleanString(rawText, 80).toLowerCase().replace(/^@/, "").trim();
+  if (!query) return null;
+
+  let best = null;
+  let bestDistance = Infinity;
+
+  for (const member of guild.members.cache.values()) {
+    if (member.user.bot) continue;
+
+    const candidates = [member.user.username, member.user.globalName, member.displayName]
+      .filter(Boolean)
+      .map((name) => name.toLowerCase());
+
+    for (const candidate of candidates) {
+      if (candidate === query) return member;
+
+      const distance = levenshteinDistance(query, candidate);
+      const threshold = Math.max(2, Math.floor(Math.max(query.length, candidate.length) * 0.3));
+      if (distance <= threshold && distance < bestDistance) {
+        bestDistance = distance;
+        best = member;
+      }
+    }
+  }
+
+  return best;
+}
+
+async function assignRoleIfConfigured(guildId, guildConfig, memberId, rawSubmitterText = "") {
+  if (!guildConfig.roleToGive) return;
 
   const guild = await client.guilds.fetch(guildId).catch(() => null);
   if (!guild) return;
 
-  const member = await guild.members.fetch(memberId).catch(() => null);
+  let member = isSnowflake(memberId) ? await guild.members.fetch(memberId).catch(() => null) : null;
+
+  // ถ้าคำตอบไม่ใช่ ID/mention ตรงๆ (คนกรอกพิมพ์แค่ username) ลองดึงสมาชิกทั้งเซิร์ฟเวอร์มาเทียบหา
+  // คนที่ username/ชื่อเล่นใกล้เคียงข้อความที่กรอกมากที่สุดแทน ก่อนจะยอมแพ้ไม่ให้ยศ
+  if (!member && rawSubmitterText) {
+    await guild.members.fetch().catch(() => null);
+    member = findClosestMember(guild, rawSubmitterText);
+  }
+
   if (!member) return;
 
   const role = await guild.roles.fetch(guildConfig.roleToGive).catch(() => null);
@@ -953,10 +1025,10 @@ async function sendSubmissionToDiscord(guildId, record, projectId = null) {
   const guildConfig = ensureGuildConfig(guildId);
   const targetProjectId = projectId || guildConfig.projectId;
   const channel = await fetchSendableChannel(guildConfig.summary.channelId);
-  const { embed, submitter, attachment } = await buildSummaryEmbed(guildConfig, targetProjectId, record);
+  const { embed, submitter, rawSubmitterText, attachment } = await buildSummaryEmbed(guildConfig, targetProjectId, record);
 
   await channel.send({ embeds: [embed], files: attachment ? [attachment] : [] });
-  await assignRoleIfConfigured(guildId, guildConfig, submitter);
+  await assignRoleIfConfigured(guildId, guildConfig, submitter, rawSubmitterText);
 }
 
 async function processFirebaseRecord(projectId, recordId, record) {
@@ -1439,7 +1511,7 @@ async function applyEmbedEditorModal(interaction, target, panel, section) {
 
 async function handleEmbedEditorButton(interaction) {
   if (!interaction.customId.startsWith("embededit:")) return false;
-  assertManageGuild(interaction);
+  assertEditorPermission(interaction);
 
   const [, rawTarget, action] = interaction.customId.split(":");
   const target = assertEmbedTarget(rawTarget);
@@ -1471,7 +1543,7 @@ async function handleEmbedEditorButton(interaction) {
 
 async function handleEmbedEditorModal(interaction) {
   if (!interaction.customId.startsWith("embedmodal:")) return false;
-  assertManageGuild(interaction);
+  assertEditorPermission(interaction);
 
   const [, rawTarget, panel] = interaction.customId.split(":");
   const target = assertEmbedTarget(rawTarget);
@@ -1482,7 +1554,15 @@ async function handleEmbedEditorModal(interaction) {
   saveConfig();
 
   const payload = await embedEditorPayload(target, guildConfig, interaction, `บันทึกส่วน \`${panel}\` ของ \`${target}\` แล้วน้า`);
-  await interaction.reply(payload);
+
+  // embed นี้ต้องเป็นข้อความถาวรที่ใครก็ตามที่มีสิทธิ์แก้ต่อได้ พอบันทึกเสร็จเลยแก้ทับข้อความเดิม
+  // (เหมือน interaction.update ของปุ่ม) แทนที่จะตอบเป็นข้อความใหม่ทุกครั้งซึ่งจะกลายเป็นข้อความเก่าที่ค้างไว้
+  // เกลื่อนห้องและแก้ต่อไม่ได้ modal อัปเดตแบบนี้ได้ก็ต่อเมื่อ modal ถูกเปิดมาจากปุ่มบนข้อความ (isFromMessage)
+  if (interaction.isFromMessage()) {
+    await interaction.update(payload);
+  } else {
+    await interaction.reply(payload);
+  }
   return true;
 }
 
