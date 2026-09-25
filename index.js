@@ -17,6 +17,7 @@ import {
   REST,
   Routes,
   SlashCommandBuilder,
+  StringSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle
 } from "discord.js";
@@ -110,6 +111,10 @@ function defaultGuildConfig() {
   return {
     projectId: null,
     roleToGive: null,
+    // กฎส่งอัตโนมัติ (auto-routing): { questionId, value, channelId, roleId } แต่ละข้อ แปลว่า "ถ้าคำตอบของ
+    // คำถาม questionId ตรงกับ value (ไม่สนตัวพิมพ์เล็ก/ใหญ่) ให้ส่งสรุปไปห้อง channelId เพิ่ม (คู่ขนานกับห้อง
+    // สรุปหลัก) แล้ว mention roleId ถ้าตั้งไว้" ดู evaluateRoutingRules/handleRoutingCommand
+    routingRules: [],
     summary: {
       channelId: null,
       title: "มีฟอร์มใหม่เข้ามาแล้วน้า",
@@ -229,12 +234,25 @@ function mergeEmbedSection(defaults, raw = {}, legacy = {}) {
   };
 }
 
+function normalizeRoutingRule(rule) {
+  const questionId = cleanString(rule?.questionId, 80);
+  const value = cleanString(rule?.value, 200);
+  const channelId = cleanString(rule?.channelId, 32);
+  if (!questionId || !value || !isSnowflake(channelId)) return null;
+
+  const roleId = cleanString(rule?.roleId, 32);
+  return { questionId, value, channelId, roleId: isSnowflake(roleId) ? roleId : null };
+}
+
 function normalizeGuildConfig(raw = {}) {
   const defaults = defaultGuildConfig();
 
   return {
     projectId: normalizeStoredProjectId(raw.projectId),
     roleToGive: cleanString(raw.roleToGive || "", 32) || null,
+    routingRules: Array.isArray(raw.routingRules)
+      ? raw.routingRules.map(normalizeRoutingRule).filter(Boolean).slice(0, 25)
+      : [],
     summary: mergeEmbedSection(defaults.summary, raw.summary, {
       channelId: raw.summaryChannel,
       title: "มีฟอร์มใหม่เข้ามาแล้วน้า",
@@ -702,8 +720,30 @@ function normalizeQuestions(form) {
   return form.slice(0, MAX_FORM_FIELDS).map((question, index) => ({
     id: cleanString(question?.id || `q${index + 1}`, 80),
     label: cleanString(question?.label || `Question ${index + 1}`, 120),
-    type: cleanString(question?.type || "text", 32)
+    type: cleanString(question?.type || "text", 32),
+    condition: normalizeQuestionCondition(question?.condition)
   }));
+}
+
+// พอร์ตตรรกะเดียวกับ isQuestionVisible ฝั่งเว็บ (firebasejs/db.js) มาไว้ที่นี่ เพราะบอทกับเว็บเป็นคนละโปรเจกต์
+// ไม่ได้แชร์โค้ดกัน ถ้าแก้เงื่อนไขฝั่งเว็บ ต้องมาแก้ตรงนี้ให้ตรงกันด้วย ไม่งั้น embed จะโชว์/ซ่อนคำถามไม่ตรงกับฟอร์มจริง
+function normalizeQuestionCondition(condition) {
+  if (!condition || typeof condition !== "object") return null;
+  const questionId = cleanString(condition.questionId, 80);
+  if (!questionId) return null;
+  const operator = ["equals", "not_equals", "contains"].includes(condition.operator) ? condition.operator : "equals";
+  return { questionId, operator, value: cleanString(condition.value, 200) };
+}
+
+function isQuestionVisible(question, answers) {
+  if (!question.condition) return true;
+  const { questionId, operator, value } = question.condition;
+  const actual = cleanString(answers?.[questionId], 1000).trim().toLowerCase();
+  const expected = cleanString(value, 200).trim().toLowerCase();
+
+  if (operator === "not_equals") return actual !== expected;
+  if (operator === "contains") return expected ? actual.includes(expected) : true;
+  return actual === expected;
 }
 
 function submissionAnswers(record = {}) {
@@ -823,6 +863,14 @@ function summaryContext(record, questions) {
   const missingAnswerTokens = [];
 
   fallbackQuestions.slice(0, MAX_FORM_FIELDS).forEach((question, index) => {
+    // Conditional Questions: ข้อที่เงื่อนไขไม่ผ่าน (ผู้กรอกไม่เห็นตอนกรอกจริง) ให้ตัดออกจาก embed ไปเลย
+    // ไม่ใช่แค่โชว์ว่างเปล่า เพราะมันไม่เกี่ยวกับใบสมัครนี้
+    if (!isQuestionVisible(question, answers)) {
+      replacements[`{${index + 1}}`] = "";
+      missingAnswerTokens.push(`{${index + 1}}`);
+      return;
+    }
+
     const value = answerByQuestion(answers, question, index);
     replacements[`{${index + 1}}`] = value;
     if (!value) {
@@ -881,6 +929,53 @@ function findSubmissionImageAttachment(record, questions) {
   return new AttachmentBuilder(decoded.buffer, { name: filename });
 }
 
+// สี/ป้ายชื่อของแต่ละสถานะการพิจารณา (reviewStatus) ใช้ทั้งตอนสร้าง embed ครั้งแรกและตอนกดเปลี่ยนสถานะ
+const REVIEW_STATUS_META = {
+  pending: { label: "รอพิจารณา", color: 0x99AAB5 },
+  reviewing: { label: "กำลังพิจารณา", color: 0xF1C40F },
+  approved: { label: "ผ่านแล้ว", color: 0x2ECC71 },
+  rejected: { label: "ไม่ผ่าน", color: 0xE74C3C }
+};
+
+function applyReviewStatusToEmbed(embed, reviewStatus, reviewerTag = "") {
+  const meta = REVIEW_STATUS_META[reviewStatus] || REVIEW_STATUS_META.pending;
+  embed.setColor(meta.color);
+  embed.addFields({
+    name: "สถานะการพิจารณา",
+    value: reviewerTag ? `${meta.label} (โดย ${reviewerTag})` : meta.label,
+    inline: true
+  });
+  return embed;
+}
+
+function buildReviewStatusRow(projectId, recordId, currentStatus) {
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(`reviewstatus:${projectId}:${recordId}`)
+    .setPlaceholder("เปลี่ยนสถานะการพิจารณา...")
+    .addOptions(
+      Object.entries(REVIEW_STATUS_META).map(([value, meta]) => ({
+        label: meta.label,
+        value,
+        default: value === currentStatus
+      }))
+    );
+  return new ActionRowBuilder().addComponents(menu);
+}
+
+// บันทึกประวัติการกระทำของแอดมิน (audit log) เขียนผ่าน firebase-admin SDK เท่านั้น (ข้าม rules ได้) เว็บอ่านได้
+// อย่างเดียว กัน manipulate ประวัติจากฝั่ง client ดู database.rules.json "auditLog": ".write": false
+async function writeAuditLog(projectId, entry) {
+  if (!firebaseDb || !projectId) return;
+  try {
+    await firebaseDb.ref(`projects/${projectId}/auditLog`).push({
+      ...entry,
+      at: Date.now()
+    });
+  } catch (error) {
+    console.error("Failed to write audit log:", error);
+  }
+}
+
 async function buildSummaryEmbed(guildConfig, projectId, record) {
   const project = await getProject(projectId);
   const questions = normalizeQuestions(project?.form);
@@ -905,10 +1000,18 @@ async function buildSummaryEmbed(guildConfig, projectId, record) {
     embed.setDescription("ชิกิยังไม่เจอคำตอบในรายการนี้นะ");
   }
 
+  applyReviewStatusToEmbed(embed, record.reviewStatus || "pending", record.reviewedByTag || "");
+
   const attachment = findSubmissionImageAttachment(record, questions);
   if (attachment) embed.setImage(`attachment://${attachment.name}`);
 
-  return { embed, submitter: extractSnowflake(context.replacements["{user_mb}"]), rawSubmitterText: findDiscordAnswerRaw(context.answers, questions), attachment };
+  return {
+    embed,
+    submitter: extractSnowflake(context.replacements["{user_mb}"]),
+    rawSubmitterText: findDiscordAnswerRaw(context.answers, questions),
+    answers: context.answers,
+    attachment
+  };
 }
 
 function findGuildIdByProjectId(projectId) {
@@ -1021,14 +1124,47 @@ async function assignRoleIfConfigured(guildId, guildConfig, memberId, rawSubmitt
   }
 }
 
-async function sendSubmissionToDiscord(guildId, record, projectId = null) {
+// กฎไหนตรงบ้าง (คำตอบของ questionId ตรงกับ value แบบไม่สนตัวพิมพ์เล็ก/ใหญ่) เอาไปส่งสรุปเพิ่มไปห้องนั้น
+// คู่ขนานกับห้องสรุปหลัก ตรงได้มากกว่า 1 กฎพร้อมกัน (ส่งได้หลายห้อง)
+function evaluateRoutingRules(rules, answers) {
+  return (rules || []).filter((rule) => {
+    const actual = cleanString(answers?.[rule.questionId], 1000).trim().toLowerCase();
+    return actual === rule.value.trim().toLowerCase();
+  });
+}
+
+async function sendSubmissionToDiscord(guildId, record, projectId = null, recordId = null) {
   const guildConfig = ensureGuildConfig(guildId);
   const targetProjectId = projectId || guildConfig.projectId;
   const channel = await fetchSendableChannel(guildConfig.summary.channelId);
-  const { embed, submitter, rawSubmitterText, attachment } = await buildSummaryEmbed(guildConfig, targetProjectId, record);
+  const { embed, submitter, rawSubmitterText, answers, attachment } = await buildSummaryEmbed(guildConfig, targetProjectId, record);
 
-  await channel.send({ embeds: [embed], files: attachment ? [attachment] : [] });
+  // แนบเมนูเปลี่ยนสถานะการพิจารณาไปกับข้อความได้ก็ต่อเมื่อมี recordId จริงใน Firebase (เส้นทาง /submit แบบ
+  // manual ทดสอบไม่มี record จริงให้ผูก เลยข้ามการแนบเมนูไปเฉย ๆ)
+  const components = recordId ? [buildReviewStatusRow(targetProjectId, recordId, record.reviewStatus || "pending")] : [];
+  await channel.send({ embeds: [embed], files: attachment ? [attachment] : [], components });
   await assignRoleIfConfigured(guildId, guildConfig, submitter, rawSubmitterText);
+
+  const matchedRoutingRules = evaluateRoutingRules(guildConfig.routingRules, answers);
+  for (const rule of matchedRoutingRules) {
+    const routedChannel = await fetchSendableChannel(rule.channelId).catch(() => null);
+    if (!routedChannel) continue;
+    await routedChannel.send({
+      content: rule.roleId ? `<@&${rule.roleId}>` : undefined,
+      embeds: [embed],
+      files: attachment ? [attachment] : []
+    }).catch((error) => console.error("Routing rule send failed:", error));
+  }
+
+  if (targetProjectId && recordId) {
+    await writeAuditLog(targetProjectId, {
+      action: "submission_posted",
+      recordId,
+      routedTo: matchedRoutingRules.map((rule) => rule.channelId),
+      actorId: client.user?.id || "bot",
+      actorTag: client.user?.tag || "shiki"
+    });
+  }
 }
 
 async function processFirebaseRecord(projectId, recordId, record) {
@@ -1051,7 +1187,7 @@ async function processFirebaseRecord(projectId, recordId, record) {
   if (!lockResult.committed) return;
 
   try {
-    await sendSubmissionToDiscord(guildId, lockResult.snapshot.val(), projectId);
+    await sendSubmissionToDiscord(guildId, lockResult.snapshot.val(), projectId, recordId);
     await recordRef.update({ status: "sent", sentAt: Date.now() });
   } catch (error) {
     console.error("Failed to process Firebase submission:", error);
@@ -1279,7 +1415,35 @@ function buildCommands() {
         )
     );
 
-  return [formCommand, embedCommand, botCommand, previewCommand].map((command) => command.toJSON());
+  const routingCommand = new SlashCommandBuilder()
+    .setName("routing")
+    .setDescription("ตั้งกฎส่งสรุปฟอร์มไปห้องอื่นอัตโนมัติตามคำตอบ")
+    .setDefaultMemberPermissions(manage)
+    .setDMPermission(false)
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("add")
+        .setDescription("เพิ่มกฎ: ถ้าคำตอบข้อนี้ตรงค่านี้ ส่งสรุปไปห้องนี้เพิ่ม")
+        .addStringOption((option) =>
+          option.setName("question_id").setDescription("ID คำถามในฟอร์ม (ดูได้ใน editor)").setRequired(true)
+        )
+        .addStringOption((option) =>
+          option.setName("value").setDescription("ค่าคำตอบที่ต้องตรง (ไม่สนตัวพิมพ์เล็ก/ใหญ่)").setRequired(true)
+        )
+        .addChannelOption((option) => option.setName("channel").setDescription("ห้องที่จะส่งไปเพิ่ม").setRequired(true))
+        .addRoleOption((option) => option.setName("role").setDescription("Role ที่จะ mention ในห้องนั้น (ไม่บังคับ)").setRequired(false))
+    )
+    .addSubcommand((subcommand) => subcommand.setName("list").setDescription("ดูกฎทั้งหมดที่ตั้งไว้"))
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("remove")
+        .setDescription("ลบกฎ")
+        .addIntegerOption((option) =>
+          option.setName("index").setDescription("ลำดับกฎ (ดูจาก /routing list)").setRequired(true).setMinValue(1)
+        )
+    );
+
+  return [formCommand, embedCommand, botCommand, previewCommand, routingCommand].map((command) => command.toJSON());
 }
 
 async function registerCommands() {
@@ -1336,6 +1500,57 @@ async function handleFormCommand(interaction, guildConfig) {
     guildConfig.roleToGive = role.id;
     saveConfig();
     await interaction.reply({ content: `ตั้ง role หลังส่งฟอร์มเป็น ${role} แล้วนะ`, ephemeral: true });
+  }
+}
+
+async function handleRoutingCommand(interaction, guildConfig) {
+  const subcommand = interaction.options.getSubcommand();
+
+  if (subcommand === "add") {
+    const questionId = cleanString(interaction.options.getString("question_id"), 80);
+    const value = cleanString(interaction.options.getString("value"), 200);
+    const channel = interaction.options.getChannel("channel");
+    const role = interaction.options.getRole("role");
+    if (!questionId || !value || !channel) {
+      await interaction.reply({ content: "ต้องระบุ question_id, value, และ channel ให้ครบนะ", ephemeral: true });
+      return;
+    }
+
+    guildConfig.routingRules = [...(guildConfig.routingRules || []), { questionId, value, channelId: channel.id, roleId: role?.id || null }].slice(0, 25);
+    saveConfig();
+    await interaction.reply({
+      content: `เพิ่มกฎแล้ว: ถ้า \`${questionId}\` ตรงกับ \`${value}\` ส่งไป ${channel}${role ? ` แล้ว mention ${role}` : ""}`,
+      ephemeral: true
+    });
+    return;
+  }
+
+  if (subcommand === "list") {
+    const rules = guildConfig.routingRules || [];
+    if (!rules.length) {
+      await interaction.reply({ content: "ยังไม่มีกฎ auto-routing เลยนะ", ephemeral: true });
+      return;
+    }
+
+    const lines = rules.map((rule, index) =>
+      `${index + 1}. \`${rule.questionId}\` = \`${rule.value}\` → <#${rule.channelId}>${rule.roleId ? ` (mention <@&${rule.roleId}>)` : ""}`
+    );
+    await interaction.reply({ content: lines.join("\n"), ephemeral: true });
+    return;
+  }
+
+  if (subcommand === "remove") {
+    const index = interaction.options.getInteger("index");
+    const rules = guildConfig.routingRules || [];
+    if (index < 1 || index > rules.length) {
+      await interaction.reply({ content: "ไม่เจอกฎลำดับนั้นนะ ลอง /routing list ดูก่อน", ephemeral: true });
+      return;
+    }
+
+    const [removed] = rules.splice(index - 1, 1);
+    guildConfig.routingRules = rules;
+    saveConfig();
+    await interaction.reply({ content: `ลบกฎ \`${removed.questionId}\` = \`${removed.value}\` แล้วนะ`, ephemeral: true });
   }
 }
 
@@ -1509,6 +1724,56 @@ async function applyEmbedEditorModal(interaction, target, panel, section) {
   throw new Error("ชิกิหา panel นี้ไม่เจอนะ");
 }
 
+async function handleReviewStatusMenu(interaction) {
+  if (!interaction.isStringSelectMenu() || !interaction.customId.startsWith("reviewstatus:")) return false;
+  assertEditorPermission(interaction);
+
+  const [, projectId, recordId] = interaction.customId.split(":");
+  const newStatus = interaction.values[0];
+  if (!REVIEW_STATUS_META[newStatus]) throw new Error("ชิกิหาสถานะนี้ไม่เจอนะ");
+  if (!firebaseDb) throw new Error("ชิกิต่อ Firebase ไม่ได้ตอนนี้นะ");
+
+  const recordRef = firebaseDb.ref(`projects/${projectId}/records/${recordId}`);
+  const snap = await recordRef.get();
+  const record = snap.val();
+  if (!record) throw new Error("ชิกิหาใบสมัครนี้ใน Firebase ไม่เจอแล้วนะ (อาจถูกลบไปแล้ว)");
+
+  const previousStatus = record.reviewStatus || "pending";
+  const reviewedByTag = interaction.user.tag;
+  await recordRef.update({
+    reviewStatus: newStatus,
+    reviewedAt: Date.now(),
+    reviewedBy: interaction.user.id,
+    reviewedByTag
+  });
+
+  await writeAuditLog(projectId, {
+    action: "review_status_changed",
+    recordId,
+    from: previousStatus,
+    to: newStatus,
+    actorId: interaction.user.id,
+    actorTag: reviewedByTag
+  });
+
+  const guildConfig = ensureGuildConfig(interaction.guildId);
+  const updatedRecord = { ...record, reviewStatus: newStatus, reviewedByTag };
+  const { embed, submitter, rawSubmitterText, attachment } = await buildSummaryEmbed(guildConfig, projectId, updatedRecord);
+
+  // ผ่านแล้ว (approved) ให้ลองให้ role อัตโนมัติด้วยเลย เผื่อตอนส่งเข้ามาแรก ๆ ยังหาสมาชิกไม่เจอ
+  // (เช่น เพิ่งเข้าเซิร์ฟเวอร์ทีหลัง) กดอนุมัติตอนนี้ก็ลองให้อีกที
+  if (newStatus === "approved") {
+    await assignRoleIfConfigured(interaction.guildId, guildConfig, submitter, rawSubmitterText);
+  }
+
+  await interaction.update({
+    embeds: [embed],
+    files: attachment ? [attachment] : [],
+    components: [buildReviewStatusRow(projectId, recordId, newStatus)]
+  });
+  return true;
+}
+
 async function handleEmbedEditorButton(interaction) {
   if (!interaction.customId.startsWith("embededit:")) return false;
   assertEditorPermission(interaction);
@@ -1586,6 +1851,11 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
+    if (interaction.isStringSelectMenu()) {
+      await handleReviewStatusMenu(interaction);
+      return;
+    }
+
     if (interaction.isModalSubmit()) {
       await handleEmbedEditorModal(interaction);
       return;
@@ -1603,6 +1873,8 @@ client.on("interactionCreate", async (interaction) => {
       await handleBotCommand(interaction, guildConfig);
     } else if (interaction.commandName === "preview") {
       await handlePreviewCommand(interaction, guildConfig);
+    } else if (interaction.commandName === "routing") {
+      await handleRoutingCommand(interaction, guildConfig);
     }
   } catch (error) {
     console.error(error);
